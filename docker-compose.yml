@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  dashboard:
+    build: .
+    container_name: doug_dashboard
+    restart: always # Keeps it running on reboots
+    ports:
+      - "80:80" # Maps port 80 of your Pi to the container
