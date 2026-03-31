@@ -5,17 +5,20 @@
   --text-main: #f3f4f6;
   --text-muted: #9ca3af;
   
-  --color-power: #eab308; /* Vibrant yellow/orange */
+  --color-power: #eab308;
   --color-power-glow: rgba(234, 179, 8, 0.3);
   
-  --color-battery: #22c55e; /* Vibrant green */
+  --color-battery: #22c55e;
   --color-battery-glow: rgba(34, 197, 94, 0.3);
   
-  --color-weather: #0ea5e9; /* Vibrant blue */
+  --color-weather: #0ea5e9;
   --color-weather-glow: rgba(14, 165, 233, 0.3);
   
-  --color-history: #a855f7; /* Vibrant purple */
+  --color-history: #a855f7;
   --color-history-glow: rgba(168, 85, 247, 0.3);
+  
+  --color-price: #f97316; /* Vibrant orange for price */
+  --color-price-glow: rgba(249, 115, 22, 0.3);
 }
 
 * {
@@ -31,35 +34,102 @@ body {
     radial-gradient(circle at 10% 20%, rgba(234, 179, 8, 0.03) 0%, transparent 40%),
     radial-gradient(circle at 90% 80%, rgba(34, 197, 94, 0.03) 0%, transparent 40%);
   color: var(--text-main);
-  min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 2rem;
-  overflow-x: hidden;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden; /* NO SCROLLING */
+  padding: 1rem;
 }
 
 #root {
   width: 100%;
-  max-width: 1200px;
+  height: 100%;
 }
 
-h1.dashboard-title {
-  text-align: center;
-  font-size: 2.5rem;
-  margin-bottom: 2rem;
+.app-container {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  gap: 1.5rem;
+}
+
+/* Sidebar Styles */
+.sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem;
+}
+
+.sidebar-title {
+  font-size: 1.5rem;
   font-weight: 800;
-  letter-spacing: -1px;
+  letter-spacing: -0.5px;
   background: linear-gradient(to right, #ffffff, #9ca3af);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  margin-bottom: 2rem;
+  line-height: 1.2;
 }
 
+.nav-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 600;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-main);
+}
+
+.nav-item.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 0 20px rgba(255,255,255,0.05);
+}
+
+/* Main Content Area */
+.main-content {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.page-header {
+  margin-bottom: 1rem;
+}
+
+.page-title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+/* Dashboard Grid */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 1.5rem;
-  width: 100%;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr); /* 2 rows to fit everything nicely */
+  gap: 1rem;
+  height: 100%;
+  padding-bottom: 0.5rem;
 }
 
 .glass-panel {
@@ -68,7 +138,7 @@ h1.dashboard-title {
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--panel-border);
   border-radius: 20px;
-  padding: 2rem;
+  padding: 1.5rem; /* Tighter padding */
   display: flex;
   flex-direction: column;
   transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
@@ -87,25 +157,21 @@ h1.dashboard-title {
   opacity: 0.5;
 }
 
-.glass-panel:hover {
-  transform: translateY(-5px);
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-.glass-panel.power:hover { box-shadow: 0 10px 30px -10px var(--color-power-glow); }
-.glass-panel.battery:hover { box-shadow: 0 10px 30px -10px var(--color-battery-glow); }
-.glass-panel.weather:hover { box-shadow: 0 10px 30px -10px var(--color-weather-glow); }
-.glass-panel.history:hover { box-shadow: 0 10px 30px -10px var(--color-history-glow); }
+.glass-panel.power:hover { box-shadow: 0 5px 20px -5px var(--color-power-glow); }
+.glass-panel.battery:hover { box-shadow: 0 5px 20px -5px var(--color-battery-glow); }
+.glass-panel.weather:hover { box-shadow: 0 5px 20px -5px var(--color-weather-glow); }
+.glass-panel.history:hover { box-shadow: 0 5px 20px -5px var(--color-history-glow); }
+.glass-panel.price:hover { box-shadow: 0 5px 20px -5px var(--color-price-glow); }
 
 .widget-header {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 .icon-wrapper {
-  padding: 0.75rem;
+  padding: 0.6rem;
   border-radius: 12px;
   display: flex;
   align-items: center;
@@ -117,9 +183,10 @@ h1.dashboard-title {
 .battery .icon-wrapper { color: var(--color-battery); box-shadow: inset 0 0 10px var(--color-battery-glow); }
 .weather .icon-wrapper { color: var(--color-weather); box-shadow: inset 0 0 10px var(--color-weather-glow); }
 .history .icon-wrapper { color: var(--color-history); box-shadow: inset 0 0 10px var(--color-history-glow); }
+.price .icon-wrapper { color: var(--color-price); box-shadow: inset 0 0 10px var(--color-price-glow); }
 
 .widget-title {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -134,7 +201,7 @@ h1.dashboard-title {
 }
 
 .main-value {
-  font-size: 3.5rem;
+  font-size: 2.8rem; /* Scaled down slightly so it doesn't wrap/overflow */
   font-weight: 700;
   line-height: 1;
   margin-bottom: 0.5rem;
@@ -144,18 +211,19 @@ h1.dashboard-title {
   gap: 0.25rem;
 }
 
-.power .main-value { text-shadow: 0 0 20px var(--color-power-glow); }
-.battery .main-value { text-shadow: 0 0 20px var(--color-battery-glow); }
-.weather .main-value { text-shadow: 0 0 20px var(--color-weather-glow); }
+.power .main-value { text-shadow: 0 0 15px var(--color-power-glow); }
+.battery .main-value { text-shadow: 0 0 15px var(--color-battery-glow); }
+.weather .main-value { text-shadow: 0 0 15px var(--color-weather-glow); }
+.price .main-value { text-shadow: 0 0 15px var(--color-price-glow); }
 
 .unit {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   color: var(--text-muted);
   font-weight: 500;
 }
 
 .sub-info {
-  font-size: 1rem;
+  font-size: 0.9rem;
   color: var(--text-muted);
   display: flex;
   align-items: center;
@@ -167,18 +235,19 @@ h1.dashboard-title {
   font-weight: 600;
 }
 
-/* History Database Styling */
+/* History Database Styling Restructured for space */
 .history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  height: 100%;
 }
 
 .history-item {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 1rem;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0.5rem 0.75rem;
   background: rgba(0, 0, 0, 0.2);
   border-radius: 8px;
   border-left: 3px solid var(--color-history);
@@ -186,12 +255,14 @@ h1.dashboard-title {
 
 .history-month {
   font-weight: 600;
-  width: 4rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
 }
 
 .history-stats {
   display: flex;
-  gap: 1.5rem;
+  justify-content: space-between;
+  font-size: 0.85rem;
 }
 
 .high-stat { color: #f87171; font-weight: 500;}
@@ -200,10 +271,10 @@ h1.dashboard-title {
 /* Animated Battery Fill */
 .battery-container {
   width: 100%;
-  height: 24px;
+  height: 20px;
   background: rgba(0,0,0,0.3);
-  border-radius: 12px;
-  margin-top: 1rem;
+  border-radius: 10px;
+  margin-top: 0.5rem;
   overflow: hidden;
   position: relative;
   border: 1px solid var(--panel-border);
@@ -212,7 +283,7 @@ h1.dashboard-title {
 .battery-fill {
   height: 100%;
   background: linear-gradient(90deg, #16a34a, #4ade80);
-  border-radius: 12px;
+  border-radius: 10px;
   transition: width 0.5s ease;
   position: relative;
   overflow: hidden;
@@ -229,13 +300,17 @@ h1.dashboard-title {
   animation: shine 2s infinite linear;
 }
 
-@keyframes shine {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
-
-@media (max-width: 768px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
+/* Placeholder Page Styling */
+.placeholder-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  gap: 1rem;
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--panel-border);
+  border-radius: 20px;
 }
