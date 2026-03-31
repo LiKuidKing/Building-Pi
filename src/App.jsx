@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { 
-  Building2, 
-  Zap, 
-  BatteryCharging, 
-  CloudSun, 
+import {
+  Building2,
+  Zap,
+  BatteryCharging,
+  CloudSun,
   History,
   ArrowUpRight,
   ArrowDownRight,
@@ -14,7 +14,8 @@ import {
   DollarSign,
   TrendingDown,
   TrendingUp,
-  Wrench
+  Wrench,
+  Menu
 } from 'lucide-react';
 import './index.css';
 
@@ -29,6 +30,7 @@ const initialHistory = [
 
 function App() {
   const [activeTab, setActiveTab] = useState('home');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [power, setPower] = useState(12.4);
   const [batteryCharge, setBatteryCharge] = useState(300);
   const [batteryPower, setBatteryPower] = useState(-5.2);
@@ -41,10 +43,10 @@ function App() {
     const interval = setInterval(() => {
       // Fluctuate power consumption
       setPower(prev => Math.max(0, +(prev + (Math.random() - 0.5)).toFixed(1)));
-      
+
       // Fluctuate battery draw
       setBatteryPower(prev => +(prev + (Math.random() * 2 - 1)).toFixed(1));
-      
+
       // Affect charge based on draw
       setBatteryCharge(prev => {
         let newCharge = prev - (batteryPower * 0.05); // Simulated drain/charge
@@ -73,40 +75,53 @@ function App() {
   return (
     <div className="app-container">
       {/* SIDEBAR NAVIGATION */}
-      <aside className="sidebar">
-        <h1 className="sidebar-title">D.O.U.G<br/><span style={{fontSize: '0.9rem', color: 'var(--text-muted)'}}>Device Orchestration</span></h1>
+      <aside className={`sidebar ${isSidebarOpen ? '' : 'collapsed'}`}>
+
+        <div className="sidebar-header">
+          <h1 className="sidebar-title">
+            D.O.U.G<br />
+            <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Building Management System</span>
+          </h1>
+          <button className="hamburger-btn" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+            <Menu size={24} />
+          </button>
+        </div>
+
         <nav className="nav-menu">
-          <div 
+          <div
             className={`nav-item ${activeTab === 'home' ? 'active' : ''}`}
             onClick={() => setActiveTab('home')}
+            title="Overview"
           >
-            <LayoutDashboard size={20} />
-            Overview
+            <LayoutDashboard size={20} style={{ flexShrink: 0 }} />
+            <span className="nav-text">Overview</span>
           </div>
-          <div 
+          <div
             className={`nav-item ${activeTab === 'schedule' ? 'active' : ''}`}
             onClick={() => setActiveTab('schedule')}
+            title="Schedule"
           >
-            <CalendarClock size={20} />
-            Schedule
+            <CalendarClock size={20} style={{ flexShrink: 0 }} />
+            <span className="nav-text">Schedule</span>
           </div>
-          <div 
+          <div
             className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
             onClick={() => setActiveTab('settings')}
+            title="Settings"
           >
-            <Settings size={20} />
-            Settings
+            <Settings size={20} style={{ flexShrink: 0 }} />
+            <span className="nav-text">Settings</span>
           </div>
         </nav>
       </aside>
 
       {/* MAIN CONTENT AREA */}
       <main className="main-content">
-        
+
         {/* TAB ROUTING */}
         {activeTab === 'home' && (
           <div className="dashboard-grid">
-            
+
             {/* Building Power Widget */}
             <div className="glass-panel power">
               <div className="widget-header">
@@ -140,8 +155,8 @@ function App() {
                   {batteryCharge} <span className="unit">/ 440 kW</span>
                 </div>
                 <div className="battery-container">
-                  <div 
-                    className="battery-fill" 
+                  <div
+                    className="battery-fill"
                     style={{ width: `${(batteryCharge / 440) * 100}%` }}
                   ></div>
                 </div>
@@ -152,8 +167,8 @@ function App() {
                     <ArrowUpRight size={16} color="#22c55e" />
                   )}
                   <span>
-                    {Math.abs(batteryPower).toFixed(1)} kW 
-                    <span className="sub-info-value" style={{ marginLeft: '4px'}}>
+                    {Math.abs(batteryPower).toFixed(1)} kW
+                    <span className="sub-info-value" style={{ marginLeft: '4px' }}>
                       {batteryPower < 0 ? 'Discharging' : 'Charging'}
                     </span>
                   </span>
@@ -179,7 +194,7 @@ function App() {
                   ) : (
                     <TrendingDown size={16} color="#22c55e" />
                   )}
-                  <span style={{color: elecPrice > 0.18 ? '#ef4444' : '#22c55e'}}>
+                  <span style={{ color: elecPrice > 0.18 ? '#ef4444' : '#22c55e' }}>
                     {elecPrice > 0.18 ? 'On-Peak Rate' : 'Off-Peak Rate'}
                   </span>
                 </div>
