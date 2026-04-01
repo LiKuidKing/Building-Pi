@@ -15,9 +15,11 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "lucide-react": "^1.7.0",
+    "modbus-serial": "^8.0.25",
     "node-bacnet": "^0.2.4",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "serialport": "^13.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

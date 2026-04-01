@@ -4,6 +4,8 @@ import bacnet from 'node-bacnet';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { SerialPort } from 'serialport';
+import ModbusRTU from 'modbus-serial';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -250,6 +252,118 @@ app.post('/api/bacnet/device/:ip/read', (req, res) => {
       res.json(results);
     }
   );
+});
+
+// --- MODBUS INTEGRATION ---
+
+let modbusClient = null;
+let modbusConfig = { path: null, baudRate: 9600, id: 1 };
+let modbusData = { power: 0, connected: false };
+let modbusInterval = null;
+
+app.get('/api/modbus/ports', async (req, res) => {
+  try {
+    const ports = await SerialPort.list();
+    res.json(ports.map(p => ({
+      path: p.path,
+      manufacturer: p.manufacturer || 'Unknown'
+    })));
+  } catch (error) {
+    console.error('Error listing serial ports:', error);
+    res.status(500).json({ error: 'Failed to list serial ports' });
+  }
+});
+
+app.post('/api/modbus/connect', async (req, res) => {
+  const { path, baudRate, id } = req.body;
+  if (!path) {
+    return res.status(400).json({ error: 'Serial port path is required' });
+  }
+
+  try {
+    if (modbusClient) {
+      if (modbusClient.isOpen) modbusClient.close();
+      modbusClient = null;
+    }
+    if (modbusInterval) {
+      clearInterval(modbusInterval);
+      modbusInterval = null;
+    }
+
+    modbusClient = new ModbusRTU();
+    await modbusClient.connectRTUBuffered(path, { baudRate: parseInt(baudRate) || 9600 });
+    modbusClient.setID(parseInt(id) || 1);
+    modbusClient.setTimeout(2000);
+
+    modbusConfig = { path, baudRate: parseInt(baudRate), id: parseInt(id) };
+    modbusData.connected = true;
+
+    // Start polling loop
+    modbusInterval = setInterval(async () => {
+      try {
+        if (!modbusClient || !modbusClient.isOpen) return;
+        
+        // Helper to parse 32-bit floats from 2 registers (WattNode uses Little-Endian Word Swap)
+        // First register (data[offset]) is the Low Word. 
+        // Second register (data[offset+1]) is the High Word.
+        const parseFloat32 = (data, offset) => {
+          const buf = Buffer.alloc(4);
+          buf.writeUInt16BE(data[offset + 1], 0); // High Word first for Node's readFloatBE
+          buf.writeUInt16BE(data[offset], 2);     // Low Word second
+          return buf.readFloatBE(0);
+        };
+
+        // 1. Voltage Phase-Neutral (Registers 1019-1024, wire address 1018)
+        const voltageData = await modbusClient.readHoldingRegisters(1018, 6);
+        modbusData.voltageA = parseFloat32(voltageData.data, 0);
+        modbusData.voltageB = parseFloat32(voltageData.data, 2);
+        modbusData.voltageC = parseFloat32(voltageData.data, 4);
+
+        // 2. Power Fast measurements (Registers 1037-1044, wire address 1036)
+        // Order: Total, Phase A, Phase B, Phase C (usually in Watts)
+        const powerData = await modbusClient.readHoldingRegisters(1036, 8);
+        modbusData.powerTotal = parseFloat32(powerData.data, 0);
+        modbusData.powerA = parseFloat32(powerData.data, 2);
+        modbusData.powerB = parseFloat32(powerData.data, 4);
+        modbusData.powerC = parseFloat32(powerData.data, 6);
+        
+        // Update main scalar 'power' for the rest of the app (convert W to kW)
+        modbusData.power = parseFloat((modbusData.powerTotal / 1000).toFixed(1));
+
+        // 3. Current (Registers 1163-1168, wire address 1162)
+        const currentData = await modbusClient.readHoldingRegisters(1162, 6);
+        modbusData.currentA = parseFloat32(currentData.data, 0);
+        modbusData.currentB = parseFloat32(currentData.data, 2);
+        modbusData.currentC = parseFloat32(currentData.data, 4);
+
+      } catch (err) {
+        console.error('Modbus Polling Error:', err.message);
+      }
+    }, 2000);
+
+    res.json({ success: true, message: `Connected to ${path} at ${baudRate} bps` });
+  } catch (error) {
+    console.error('Modbus Connection Error:', error);
+    modbusData.connected = false;
+    res.status(500).json({ error: error.message || 'Failed to connect to Modbus device' });
+  }
+});
+
+app.post('/api/modbus/disconnect', (req, res) => {
+  if (modbusInterval) {
+    clearInterval(modbusInterval);
+    modbusInterval = null;
+  }
+  if (modbusClient && modbusClient.isOpen) {
+    modbusClient.close();
+  }
+  modbusClient = null;
+  modbusData.connected = false;
+  res.json({ success: true, message: 'Disconnected' });
+});
+
+app.get('/api/modbus/data', (req, res) => {
+  res.json(modbusData);
 });
 
 app.listen(port, () => {

@@ -50,6 +50,37 @@ function App() {
   const [discoveredDevices, setDiscoveredDevices] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
 
+  // Modbus State
+  const [modbusConfig, setModbusConfig] = useState({ path: '', baudRate: 9600, id: 1 });
+  const [modbusPorts, setModbusPorts] = useState([]);
+  const [modbusData, setModbusData] = useState({ connected: false, power: 0 });
+  const [isConnectingModbus, setIsConnectingModbus] = useState(false);
+
+  const toggleModbusConnection = async () => {
+    setIsConnectingModbus(true);
+    try {
+      if (modbusData.connected) {
+        await fetch('/api/modbus/disconnect', { method: 'POST' });
+        // Assume disconnected immediately to avoid UI delay
+        setModbusData(prev => ({ ...prev, connected: false }));
+      } else {
+        const res = await fetch('/api/modbus/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(modbusConfig)
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        // Connect successful, polling will pick up the 'connected' state shortly
+      }
+    } catch (e) {
+      console.error(e);
+      alert(`Error: ${e.message}`);
+    } finally {
+      setIsConnectingModbus(false);
+    }
+  };
+
   const discoverDevices = async () => {
     setIsDiscovering(true);
     setDiscoveredDevices([]);
@@ -102,8 +133,10 @@ function App() {
   // Data simulation loop
   useEffect(() => {
     const interval = setInterval(() => {
-      // Fluctuate power consumption
-      setPower(prev => Math.max(0, +(prev + (Math.random() - 0.5)).toFixed(1)));
+      // Fluctuate power consumption ONLY if Modbus is NOT providing live data
+      if (!modbusData.connected) {
+        setPower(prev => Math.max(0, +(prev + (Math.random() - 0.5)).toFixed(1)));
+      }
 
       // Fluctuate battery draw
       setBatteryPower(prev => +(prev + (Math.random() * 2 - 1)).toFixed(1));
@@ -133,7 +166,38 @@ function App() {
     return () => {
       clearInterval(interval);
     };
-  }, [batteryPower]);
+  }, [batteryPower, modbusData.connected]);
+
+  // Fetch Modbus Ports
+  useEffect(() => {
+    if (activeTab === 'modbus') {
+      fetch('/api/modbus/ports')
+        .then(res => res.json())
+        .then(data => {
+          setModbusPorts(data || []);
+          if (data && data.length > 0 && !modbusConfig.path) {
+            setModbusConfig(prev => ({ ...prev, path: data[0].path }));
+          }
+        })
+        .catch(console.error);
+    }
+  }, [activeTab]); // Removed modbusConfig.path from dependencies to avoid loop, it's just initial setup
+
+  // Modbus Data Polling
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      fetch('/api/modbus/data')
+        .then(res => res.json())
+        .then(data => {
+          setModbusData(data);
+          if (data.connected && data.power !== undefined && data.power > 0) {
+             setPower(data.power);
+          }
+        })
+        .catch(console.error);
+    }, 2000);
+    return () => clearInterval(pollInterval);
+  }, []);
 
   // Poll real-time BACnet data updates natively from the backend API for registered devices
   useEffect(() => {
@@ -220,6 +284,14 @@ function App() {
           >
             <Network size={20} style={{ flexShrink: 0 }} />
             <span className="nav-text">BACnet</span>
+          </div>
+          <div
+            className={`nav-item ${activeTab === 'modbus' ? 'active' : ''}`}
+            onClick={() => setActiveTab('modbus')}
+            title="Modbus Integration"
+          >
+            <Server size={20} style={{ flexShrink: 0 }} />
+            <span className="nav-text">Modbus</span>
           </div>
           <div
             className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
@@ -544,6 +616,131 @@ function App() {
                  ))}
                </div>
              </div>
+          </div>
+        )}
+
+        {/* MODBUS PAGE */}
+        {activeTab === 'modbus' && (
+          <div className="bacnet-container glass-panel" style={{ height: 'auto', flexGrow: 1 }}>
+            <div className="page-header">
+              <h2 className="page-title">Modbus RS485 Settings</h2>
+            </div>
+            
+            <div className="config-section">
+              <div className="section-title">
+                <Server size={20} />
+                Connection Configuration
+              </div>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label>Serial Port</label>
+                  <select 
+                    className="input-field"
+                    value={modbusConfig.path || ''}
+                    onChange={(e) => setModbusConfig({...modbusConfig, path: e.target.value})}
+                    disabled={modbusData.connected}
+                    style={{ background: 'rgba(255,255,255,0.05)', color: 'white' }}
+                  >
+                    <option value="" disabled>Select Port</option>
+                    {modbusPorts.map(p => (
+                      <option key={p.path} value={p.path}>{p.path} ({p.manufacturer || 'Unknown'})</option>
+                    ))}
+                    {modbusPorts.length === 0 && <option value="custom">No ports detected</option>}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Baud Rate</label>
+                  <select 
+                    className="input-field"
+                    value={modbusConfig.baudRate}
+                    onChange={(e) => setModbusConfig({...modbusConfig, baudRate: e.target.value})}
+                    disabled={modbusData.connected}
+                    style={{ background: 'rgba(255,255,255,0.05)', color: 'white' }}
+                  >
+                    <option value="9600">9600 bps</option>
+                    <option value="19200">19200 bps</option>
+                    <option value="38400">38400 bps</option>
+                    <option value="57600">57600 bps</option>
+                    <option value="115200">115200 bps</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>WattNode Server ID (1-255)</label>
+                  <input 
+                    type="number" 
+                    className="input-field" 
+                    value={modbusConfig.id}
+                    onChange={(e) => setModbusConfig({...modbusConfig, id: e.target.value})}
+                    disabled={modbusData.connected}
+                    min="1" max="255"
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  Status: 
+                  <span className={`device-status ${!modbusData.connected ? 'offline' : ''}`}>
+                    {modbusData.connected ? 'CONNECTED' : 'DISCONNECTED'}
+                  </span>
+                </div>
+                <button 
+                  className={modbusData.connected ? "button-secondary" : "button-primary"}
+                  onClick={toggleModbusConnection}
+                  disabled={isConnectingModbus || (!modbusConfig.path && modbusConfig.path !== 'custom')}
+                >
+                  {isConnectingModbus ? 'Processing...' : (modbusData.connected ? 'Disconnect' : 'Connect')}
+                </button>
+              </div>
+            </div>
+            
+            <div className="config-section" style={{ marginTop: '1rem', flexGrow: 1 }}>
+              <div className="section-title">
+                <Activity size={20} />
+                Live Data Feed
+              </div>
+              {modbusData.connected ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                  {/* Total Power */}
+                  <div style={{ padding: '1.25rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(74,222,128,0.3)', gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <Activity size={24} color="#4ade80" />
+                      <span style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}>Total Real Power</span>
+                    </div>
+                    <span style={{ fontSize: '1.75rem', color: '#4ade80', fontWeight: 'bold' }}>
+                      {modbusData.powerTotal ? (modbusData.powerTotal / 1000).toFixed(2) : '0.00'} <span style={{ fontSize: '1rem', fontWeight: 'normal' }}>kW</span>
+                    </span>
+                  </div>
+                  
+                  {/* Phase A */}
+                  <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', marginBottom: '0.75rem', fontWeight: 'bold', color: '#facc15' }}>Phase A</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}><span>Voltage:</span> <span>{modbusData.voltageA?.toFixed(1) || '0.0'} V</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', margin: '8px 0' }}><span>Current:</span> <span>{modbusData.currentA?.toFixed(2) || '0.00'} A</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}><span>Power:</span> <span>{modbusData.powerA ? (modbusData.powerA / 1000).toFixed(2) : '0.00'} kW</span></div>
+                  </div>
+
+                  {/* Phase B */}
+                  <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', marginBottom: '0.75rem', fontWeight: 'bold', color: '#f87171' }}>Phase B</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}><span>Voltage:</span> <span>{modbusData.voltageB?.toFixed(1) || '0.0'} V</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', margin: '8px 0' }}><span>Current:</span> <span>{modbusData.currentB?.toFixed(2) || '0.00'} A</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}><span>Power:</span> <span>{modbusData.powerB ? (modbusData.powerB / 1000).toFixed(2) : '0.00'} kW</span></div>
+                  </div>
+
+                  {/* Phase C */}
+                  <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', marginBottom: '0.75rem', fontWeight: 'bold', color: '#60a5fa' }}>Phase C</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}><span>Voltage:</span> <span>{modbusData.voltageC?.toFixed(1) || '0.0'} V</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', margin: '8px 0' }}><span>Current:</span> <span>{modbusData.currentC?.toFixed(2) || '0.00'} A</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}><span>Power:</span> <span>{modbusData.powerC ? (modbusData.powerC / 1000).toFixed(2) : '0.00'} kW</span></div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                   <span style={{ color: 'var(--text-muted)' }}>Connect to Modbus device to view live phase data.</span>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
