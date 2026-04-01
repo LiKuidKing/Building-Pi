@@ -5,5 +5,5 @@ services:
     build: .
     container_name: doug_dashboard
     restart: always # Keeps it running on reboots
-    ports:
-      - "80:80" # Maps port 80 of your Pi to the container
+    network_mode: "host" # Crucial! Allows UDP broadcasts (47808) to reach the physical network
+    # Note: Because of 'host' mode, 'ports' mapping is ignored. The container will bind to Port 80 natively.

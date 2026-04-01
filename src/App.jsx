@@ -89,6 +89,16 @@ function App() {
 
   // Data simulation loop
   useEffect(() => {
+    // Automatically fetch the Pi's actual IP address on mount
+    fetch('/api/network/ip')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.ip) {
+          setBacnetConfig(prev => ({ ...prev, ip: data.ip }));
+        }
+      })
+      .catch(e => console.error("Could not fetch local network IP:", e));
+
     const interval = setInterval(() => {
       // Fluctuate power consumption
       setPower(prev => Math.max(0, +(prev + (Math.random() - 0.5)).toFixed(1)));

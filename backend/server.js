@@ -1,12 +1,23 @@
 import express from 'express';
 import cors from 'cors';
 import bacnet from 'node-bacnet';
+import os from 'os';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || (process.env.NODE_ENV === 'production' ? 80 : 3001);
 
 app.use(cors());
 app.use(express.json());
+
+// Serve static compiled front-end files in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../dist')));
+}
 
 // Maintain a singleton BACnet client
 let client = null;
@@ -57,6 +68,27 @@ const OBJECT_TYPES = {
   5: 'Binary Value',
   8: 'Device'
 };
+
+app.get('/api/network/ip', (req, res) => {
+  const interfaces = os.networkInterfaces();
+  let localIp = '192.168.1.100'; // Default fallback
+  
+  // Find the first non-internal IPv4 address
+  for (const name of Object.keys(interfaces)) {
+    for (const net of interfaces[name]) {
+      // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
+      if (net.family === 'IPv4' && !net.internal) {
+        // Skip common docker/virtual bridge addresses if possible, but keep simple for now
+        if (!name.startsWith('docker') && !name.startsWith('br-')) {
+          localIp = net.address;
+          break;
+        }
+      }
+    }
+  }
+  
+  res.json({ ip: localIp });
+});
 
 app.get('/api/bacnet/discover', (req, res) => {
   const { ip, port } = req.query;
