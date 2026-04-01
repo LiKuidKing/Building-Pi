@@ -50,29 +50,40 @@ function App() {
   const [discoveredDevices, setDiscoveredDevices] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
 
-  const discoverDevices = () => {
+  const discoverDevices = async () => {
     setIsDiscovering(true);
     setDiscoveredDevices([]);
-    setTimeout(() => {
-      setDiscoveredDevices([
-        { id: 1001, name: 'AHU-1 System', ip: '192.168.1.150', status: 'online' },
-        { id: 1002, name: 'Chiller Plant Supervisor', ip: '192.168.1.151', status: 'online' },
-        { id: 1005, name: 'VAV-101 Controller', ip: '192.168.1.155', status: 'offline' }
-      ]);
+    try {
+      const qs = new URLSearchParams({ ip: bacnetConfig.ip, port: bacnetConfig.port });
+      const res = await fetch(`/api/bacnet/discover?${qs.toString()}`);
+      if (res.ok) {
+        const devices = await res.json();
+        setDiscoveredDevices(devices);
+      }
+    } catch (e) {
+      console.error('Discover error:', e);
+      alert('Error connecting to BACnet service');
+    } finally {
       setIsDiscovering(false);
-    }, 2000);
+    }
   };
 
-  const addDevice = (device) => {
+  const addDevice = async (device) => {
     if (!bacnetDevices.find(d => d.id === device.id)) {
-      const newDevice = { ...device, points: [
-        { id: 'AI-1', name: 'Supply Temp', value: +(Math.random() * 10 + 15).toFixed(1), unit: '°C' },
-        { id: 'AI-2', name: 'Return Temp', value: +(Math.random() * 5 + 20).toFixed(1), unit: '°C' },
-        { id: 'AV-1', name: 'Temp Setpoint', value: 22.0, unit: '°C' },
-        { id: 'BO-1', name: 'Fan Command', value: 'ON', unit: '' },
-        { id: 'BI-1', name: 'Filter Status', value: 'Normal', unit: '' }
-      ]};
-      setBacnetDevices([...bacnetDevices, newDevice]);
+      try {
+        const qs = new URLSearchParams({ localIp: bacnetConfig.ip, localPort: bacnetConfig.port });
+        const res = await fetch(`/api/bacnet/device/${device.ip}/${device.id}/objects?${qs.toString()}`);
+        
+        let initialPoints = [];
+        if (res.ok) {
+          initialPoints = await res.json();
+        }
+
+        const newDevice = { ...device, points: initialPoints };
+        setBacnetDevices(prev => [...prev, newDevice]);
+      } catch (e) {
+        console.error('Add device error:', e);
+      }
     }
   };
 
@@ -107,27 +118,53 @@ function App() {
 
     }, 3000);
 
-    // Simulate real-time BACnet data updates for registered devices
-    const bacnetInterval = setInterval(() => {
-      setBacnetDevices(prevDevices => prevDevices.map(device => {
+    // Poll real-time BACnet data updates from the API for registered devices
+    const bacnetInterval = setInterval(async () => {
+      if (bacnetDevices.length === 0) return;
+
+      const updatedDevicesPromises = bacnetDevices.map(async (device) => {
         if (device.status === 'offline') return device;
-        return {
-          ...device,
-          points: device.points.map(point => {
-            if (point.id.startsWith('AI')) {
-              return { ...point, value: +(point.value + (Math.random() * 0.4 - 0.2)).toFixed(1) };
-            }
-            return point;
-          })
-        };
-      }));
+
+        try {
+          const qs = new URLSearchParams({ localIp: bacnetConfig.ip, localPort: bacnetConfig.port });
+          
+          // Only read objects we actually have
+          const objectsToRead = device.points.map(p => p.objectId);
+          if (objectsToRead.length === 0) return device;
+
+          const res = await fetch(`/api/bacnet/device/${device.ip}/read?${qs.toString()}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(objectsToRead)
+          });
+
+          if (res.ok) {
+            const results = await res.json();
+            // Map the results back to the points array
+            const newPoints = device.points.map(p => {
+              const matchedResult = results.find(r => r.type === p.objectId.type && r.instance === p.objectId.instance);
+              return matchedResult ? { ...p, value: matchedResult.value } : p;
+            });
+            return { ...device, points: newPoints };
+          }
+        } catch (e) {
+          console.error(`Error reading data from ${device.ip}:`, e);
+        }
+        
+        return device;
+      });
+
+      const nextDevices = await Promise.all(updatedDevicesPromises);
+      if (nextDevices && nextDevices.length > 0) {
+        setBacnetDevices(nextDevices);
+      }
     }, 4000);
 
     return () => {
       clearInterval(interval);
       clearInterval(bacnetInterval);
     };
-  }, [batteryPower]);
+  }, [batteryPower, bacnetDevices, bacnetConfig]);
 
   return (
     <div className="app-container">
