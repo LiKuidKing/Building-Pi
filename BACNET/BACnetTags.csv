@@ -1,0 +1,32 @@
+Weintek BACnet Export Vserion : 1.00
+symbolic link support : 0
+GROUP_ID,GROUP_NAME
+1,New Group
+DEVICE_ID,GROUP_ID,DEVICE_NAME
+701,1,Weintek HMI
+DEVICE_ID,OBJECT_TYPE,INSTANCE,OBJECT_NAME,DESCRI
+701,0,0,Core Temp Top,
+701,0,1,Core Temp Mid,
+701,0,2,Core Temp Bottom,
+701,0,3,Heat Exchanger Temp,
+701,0,4,Outdoor Temp,
+701,1,0,Manual Element PWM,
+701,2,0,Outdoor Temp (Network),
+701,2,1,Core Temp Limit,
+701,2,2,Building L1 Watts,
+701,2,3,Building L2 Watts,
+701,2,4,Building L3 Watts,
+701,2,5,Core Top Temp,
+701,3,0,Heating Element 1,
+701,3,1,Heating Element 2,
+701,3,2,Heating Element 3,
+701,3,3,Heating Element 4,
+701,3,4,Heating Element 5,
+701,3,5,Heating Element 6,
+701,3,6,Heating Element 7,
+701,3,7,Heating Element 8,
+701,3,8,Heating Element 9,
+701,3,9,Blower,
+701,3,10,Pump,
+701,4,0,Heat Call,
+701,8,701,Weintek HMI,Weintek BACnet Server
