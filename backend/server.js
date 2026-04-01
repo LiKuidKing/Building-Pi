@@ -71,18 +71,19 @@ const OBJECT_TYPES = {
 
 app.get('/api/network/ip', (req, res) => {
   const interfaces = os.networkInterfaces();
-  let localIp = '192.168.1.100'; // Default fallback
+  let localIp = '0.0.0.0'; // Default fallback that natively binds all IPs
   
-  // Find the first non-internal IPv4 address
+  // Find the first non-internal, physical IPv4 address
   for (const name of Object.keys(interfaces)) {
+    // Avoid binding to known virtual bridges or container networks which throw EADDRNOTAVAIL
+    const lcname = name.toLowerCase();
+    if (lcname.includes('veth') || lcname.includes('docker') || lcname.includes('br-') || lcname.includes('vmware') || lcname.includes('virtual') || lcname.includes('hyper')) {
+      continue;
+    }
+    
     for (const net of interfaces[name]) {
-      // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
-      if (net.family === 'IPv4' && !net.internal) {
-        // Skip common docker/virtual bridge addresses if possible, but keep simple for now
-        if (!name.startsWith('docker') && !name.startsWith('br-')) {
-          localIp = net.address;
-          break;
-        }
+      if (net.family === 'IPv4' && !net.internal && localIp === '0.0.0.0') {
+        localIp = net.address;
       }
     }
   }
@@ -200,40 +201,55 @@ app.post('/api/bacnet/device/:ip/read', (req, res) => {
   const { localIp, localPort } = req.query;
   const bacnetClient = getClient(localIp, parseInt(localPort) || 47808);
 
-  if (!objectsToRead || !objectsToRead.length) {
+  if (!objectsToRead || !objectsToRead.length || !bacnetClient) {
     return res.json([]);
   }
 
-  // We'll map the readProperty calls to Promises and run them
-  // Warning: Consecutively bashing a BACnet device with 50 single readProperty requests
-  // might overwhelm simple devices. A small delay or ReadPropertyMultiple is better in prod.
-  const readPromises = objectsToRead.map(obj => {
-    return new Promise((resolve) => {
-      // 85 is BACNET_PROPERTY_PRESENT_VALUE
-      bacnetClient.readProperty(targetIp, obj, 85, (err, value) => {
-        if (err || !value || !value.values || value.values.length === 0) {
-          resolve({ ...obj, value: 'ERR' });
-        } else {
-          // value.values[0].value contains the raw reading
-          const reading = value.values[0].value;
+  // To prevent dropping UDP packets from sending multiple concurrent readProperty requests,
+  // we batch request using ReadPropertyMultiple (Standard ID 85 is PRESENT_VALUE).
+  const requestArray = objectsToRead.map(obj => ({
+    objectId: obj,
+    properties: [{ id: 85 }]
+  }));
+
+  bacnetClient.readPropertyMultiple(
+    targetIp,
+    requestArray,
+    (err, value) => {
+      if (err) {
+        console.error(`ReadPropertyMultiple Error [${targetIp}]:`, err.message);
+        // Fallback or just return ERR for all mapped objects so the UI handles it cleanly
+        const errResults = objectsToRead.map(obj => ({ ...obj, value: 'ERR' }));
+        return res.json(errResults);
+      }
+
+      if (!value || !value.values) {
+         return res.json([]);
+      }
+
+      const results = value.values.map(item => {
+        const obj = item.objectId || item.objectIdentifier;
+        let formattedValue = '---';
+        
+        // Extract the nested property value deeply nested in node-bacnet's RPM payload
+        // Also handling fallback just in case 'value.value' varies based on node-bacnet versions
+        if (item.values && item.values.length > 0 && item.values[0].value && item.values[0].value.length > 0) {
+          const reading = item.values[0].value[0].value;
           
-          // Format based on type (e.g. Binary is usually 0/1 meaning Inactive/Active)
-          let formattedValue = reading;
-          if (obj.type === 3 || obj.type === 4 || obj.type === 5) { // Binary
+          formattedValue = reading;
+          if (obj.type === 3 || obj.type === 4 || obj.type === 5) { // Binary Input/Output/Value
             formattedValue = reading === 1 ? 'ON' : 'OFF';
           } else if (typeof reading === 'number') {
             formattedValue = reading.toFixed(1);
           }
-
-          resolve({ ...obj, value: formattedValue });
         }
+        
+        return { ...obj, value: formattedValue };
       });
-    });
-  });
-
-  Promise.all(readPromises).then(results => {
-    res.json(results);
-  });
+      
+      res.json(results);
+    }
+  );
 });
 
 app.listen(port, () => {

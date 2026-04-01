@@ -87,9 +87,8 @@ function App() {
     }
   };
 
-  // Data simulation loop
+  // Automatically fetch the Pi's actual IP address ONLY once on mount
   useEffect(() => {
-    // Automatically fetch the Pi's actual IP address on mount
     fetch('/api/network/ip')
       .then(res => res.json())
       .then(data => {
@@ -98,7 +97,10 @@ function App() {
         }
       })
       .catch(e => console.error("Could not fetch local network IP:", e));
+  }, []);
 
+  // Data simulation loop
+  useEffect(() => {
     const interval = setInterval(() => {
       // Fluctuate power consumption
       setPower(prev => Math.max(0, +(prev + (Math.random() - 0.5)).toFixed(1)));
@@ -128,7 +130,13 @@ function App() {
 
     }, 3000);
 
-    // Poll real-time BACnet data updates from the API for registered devices
+    return () => {
+      clearInterval(interval);
+    };
+  }, [batteryPower]);
+
+  // Poll real-time BACnet data updates natively from the backend API for registered devices
+  useEffect(() => {
     const bacnetInterval = setInterval(async () => {
       if (bacnetDevices.length === 0) return;
 
@@ -170,11 +178,8 @@ function App() {
       }
     }, 4000);
 
-    return () => {
-      clearInterval(interval);
-      clearInterval(bacnetInterval);
-    };
-  }, [batteryPower, bacnetDevices, bacnetConfig]);
+    return () => clearInterval(bacnetInterval);
+  }, [bacnetDevices, bacnetConfig]);
 
   return (
     <div className="app-container">
