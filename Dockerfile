@@ -20,7 +20,7 @@ WORKDIR /app
 
 # Copy package.json to install solely production backend dependencies
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN apk add --no-cache eudev && npm install --omit=dev
 
 # Copy the built React app
 COPY --from=builder /app/dist ./dist

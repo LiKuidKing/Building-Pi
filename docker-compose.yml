@@ -7,3 +7,6 @@ services:
     restart: always # Keeps it running on reboots
     network_mode: "host" # Crucial! Allows UDP broadcasts (47808) to reach the physical network
     # Note: Because of 'host' mode, 'ports' mapping is ignored. The container will bind to Port 80 natively.
+    privileged: true # Allows access to host hardware devices (RS485 adapters)
+    volumes:
+      - /dev:/dev # Mounts the host's device tree so serial adapters populate dynamically
