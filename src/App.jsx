@@ -174,12 +174,20 @@ function App() {
       fetch('/api/modbus/ports')
         .then(res => res.json())
         .then(data => {
-          setModbusPorts(data || []);
-          if (data && data.length > 0 && !modbusConfig.path) {
-            setModbusConfig(prev => ({ ...prev, path: data[0].path }));
+          if (Array.isArray(data)) {
+            setModbusPorts(data);
+            if (data.length > 0 && !modbusConfig.path) {
+              setModbusConfig(prev => ({ ...prev, path: data[0].path }));
+            }
+          } else {
+            console.error('Invalid modbus ports data:', data);
+            setModbusPorts([]);
           }
         })
-        .catch(console.error);
+        .catch(err => {
+          console.error('Error fetching modbus ports', err);
+          setModbusPorts([]);
+        });
     }
   }, [activeTab]); // Removed modbusConfig.path from dependencies to avoid loop, it's just initial setup
 
