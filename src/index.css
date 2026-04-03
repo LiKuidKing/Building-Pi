@@ -38,6 +38,8 @@ body {
   width: 100vw;
   overflow: hidden;
   padding: 1rem;
+  -webkit-user-select: none; /* Prevent text selection on touch drag */
+  user-select: none; /* Prevent text selection on touch drag */
 }
 
 #root {
@@ -450,6 +452,8 @@ body {
   font-family: inherit;
   font-size: 0.95rem;
   transition: all 0.2s;
+  -webkit-user-select: auto; /* Re-enable selection for inputs */
+  user-select: auto;
 }
 
 .input-field:focus {

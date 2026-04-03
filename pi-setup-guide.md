@@ -27,7 +27,7 @@ To prepare for the Raspberry Pi deployment, three files were added to the root o
 1. Ensure the Raspberry Pi is up to date and has Docker installed:
    ```bash
    sudo apt update
-   sudo apt install git docker.io -y
+   sudo apt install git docker.io docker-compose -y
    sudo usermod -aG docker ets
    ```
 
@@ -51,7 +51,12 @@ To prepare for the Raspberry Pi deployment, three files were added to the root o
 To make the Raspberry Pi act as a dedicated display monitor, we configure it to update the code automatically, start the container, and launch Chromium in full-screen mode on every reboot.
 
 ### Step A: The Startup Script
-Create a bash script at `/home/ets/start-kiosk.sh`:
+1. On the Raspberry Pi, open the `nano` text editor to create the file:
+   ```bash
+   nano /home/ets/start-kiosk.sh
+   ```
+
+2. Paste in the following script:
 ```bash
 #!/bin/bash
 
@@ -62,16 +67,21 @@ cd /home/ets/Building-Pi
 ./pi-update.sh
 
 # Give Docker a few seconds to spin up NGINX
-sleep 5
+sleep 10
 
 # Launch Chromium in Kiosk Mode targeting the local Docker container
-chromium-browser --kiosk --noerrdialogs --disable-infobars --incognito http://localhost
+chromium --touch-events=enabled --password-store=basic --kiosk --noerrdialogs --disable-infobars --incognito http://localhost --enable-touch-drag-drop --no-first-run
 ```
 Make it executable: `chmod +x /home/ets/start-kiosk.sh`
 
 ### Step B: The Autostart Desktop Entry
-To tell the Pi's desktop environment to run that script on boot, create the shortcut file at `~/.config/autostart/doug-kiosk.desktop`:
+To tell the Pi's desktop environment to run that script on boot, we create a shortcut file. 
+1. Open `nano` again for the autostart entry:
+   ```bash
+   nano ~/.config/autostart/doug-kiosk.desktop
+   ```
 
+2. Paste the following configuration:
 ```ini
 [Desktop Entry]
 Type=Application
@@ -79,6 +89,7 @@ Name=DOUG Kiosk
 Exec=/bin/bash /home/ets/start-kiosk.sh
 X-GNOME-Autostart-enabled=true
 ```
+3. Save your file (`Ctrl+O`, hit `Enter`), and exit (`Ctrl+X`).
 
 ## 5. Maintenance
 Anytime the source code changes on the Windows development PC:
