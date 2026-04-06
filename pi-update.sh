@@ -1,4 +1,7 @@
 #!/bin/bash
+echo "[D.O.U.G] Discarding local changes..."
+git checkout -- .
+
 echo "[D.O.U.G] Pulling latest code..."
 git pull origin main
 
