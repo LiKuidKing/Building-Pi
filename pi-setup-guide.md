@@ -95,3 +95,8 @@ X-GNOME-Autostart-enabled=true
 Anytime the source code changes on the Windows development PC:
 1. `git commit -am "Update"` and `git push`
 2. Reboot the Raspberry Pi. The autostart script will pull the new code, rebuild the container, and display the update automatically.
+
+## 6. Touchscreen Configuration 
+If you find that swiping to scroll on the touchscreen highlights text instead of scrolling (and acts like a mouse click):
+1. Open the Raspberry Pi's **Display Settings**.
+2. Make sure the touch display is set to **Multitouch** instead of **Mouse Emulation** (which is sometimes the default on fresh OS installs).

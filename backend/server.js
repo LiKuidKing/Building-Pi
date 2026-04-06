@@ -34,10 +34,12 @@ function getClient(ip, clientPort) {
   // Close old client if exists
   if (client) {
     try {
+      client.removeAllListeners();
       client.close();
     } catch (e) {
       console.error('Error closing old client', e);
     }
+    client = null;
   }
 
   console.log(`Initializing BACnet client on ${ip || 'default interface'}:${clientPort || 47808}`);
@@ -49,16 +51,33 @@ function getClient(ip, clientPort) {
     options.interface = ip;
   }
   
-  // node-bacnet has a known quirk where sometimes you have to bind explicitly
-  client = new bacnet(options);
+  try {
+    client = new bacnet(options);
 
-  client.on('error', (err) => {
-    console.error('BACnet Client Error:', err);
-    client = null; // Reset on error so next request tries again
-  });
+    client.on('error', (err) => {
+      console.error('BACnet Client Error:', err);
+      client = null; // Reset on error so next request tries again
+    });
+  } catch (e) {
+    console.error('Failed to create BACnet client:', e);
+    client = null;
+  }
 
   return client;
 }
+
+// Endpoint to force-reset the BACnet client (used when user saves new network settings)
+app.post('/api/bacnet/reset', (req, res) => {
+  if (client) {
+    try {
+      client.removeAllListeners();
+      client.close();
+    } catch (e) { /* ignore */ }
+    client = null;
+    currentConfig = { ip: null, port: 47808 };
+  }
+  res.json({ success: true });
+});
 
 // Map of BACnet Object Types to human readable names
 const OBJECT_TYPES = {
@@ -73,24 +92,46 @@ const OBJECT_TYPES = {
 
 app.get('/api/network/ip', (req, res) => {
   const interfaces = os.networkInterfaces();
-  let localIp = '0.0.0.0'; // Default fallback that natively binds all IPs
+  const candidates = [];
   
-  // Find the first non-internal, physical IPv4 address
   for (const name of Object.keys(interfaces)) {
-    // Avoid binding to known virtual bridges or container networks which throw EADDRNOTAVAIL
+    // Skip known virtual / non-physical adapters
     const lcname = name.toLowerCase();
-    if (lcname.includes('veth') || lcname.includes('docker') || lcname.includes('br-') || lcname.includes('vmware') || lcname.includes('virtual') || lcname.includes('hyper')) {
+    if (lcname.includes('veth') || lcname.includes('docker') || lcname.includes('br-') ||
+        lcname.includes('vmware') || lcname.includes('virtual') || lcname.includes('hyper') ||
+        lcname.includes('bluetooth') || lcname.includes('tunnel') || lcname.includes('loopback')) {
       continue;
     }
     
     for (const net of interfaces[name]) {
-      if (net.family === 'IPv4' && !net.internal && localIp === '0.0.0.0') {
-        localIp = net.address;
+      if (net.family === 'IPv4' && !net.internal) {
+        // Skip link-local / APIPA addresses (adapter has no DHCP lease / not connected)
+        if (net.address.startsWith('169.254.')) continue;
+        
+        // Score: prefer common LAN ranges
+        let score = 1;
+        if (net.address.startsWith('192.168.')) score = 10;
+        else if (net.address.startsWith('10.')) score = 8;
+        else if (net.address.match(/^172\.(1[6-9]|2[0-9]|3[01])\./)) score = 6;
+        
+        // Prefer Wi-Fi / wlan on Pi (usually the active one during dev)
+        if (lcname.includes('wlan') || lcname.includes('wi-fi') || lcname.includes('wireless')) score += 2;
+        // Also boost eth0 on Pi
+        if (lcname === 'eth0') score += 1;
+        
+        candidates.push({ address: net.address, name, score });
       }
     }
   }
   
-  res.json({ ip: localIp });
+  // Sort by score descending, take best
+  candidates.sort((a, b) => b.score - a.score);
+  const bestIp = candidates.length > 0 ? candidates[0].address : '0.0.0.0';
+  
+  console.log('Network candidates:', candidates.map(c => `${c.name}=${c.address} (score ${c.score})`).join(', '));
+  console.log('Selected IP:', bestIp);
+  
+  res.json({ ip: bestIp });
 });
 
 app.get('/api/bacnet/discover', (req, res) => {
@@ -250,6 +291,47 @@ app.post('/api/bacnet/device/:ip/read', (req, res) => {
       });
       
       res.json(results);
+    }
+  );
+});
+
+// Endpoint to write a BACnet property (usually Present_Value ID: 85)
+app.post('/api/bacnet/device/:ip/write', (req, res) => {
+  const targetIp = req.params.ip;
+  const { objectId, value, priority } = req.body; // objectId: { type, instance }, value: number/boolean, priority: 1-16
+  
+  const { localIp, localPort } = req.query;
+  const bacnetClient = getClient(localIp, parseInt(localPort) || 47808);
+
+  if (!bacnetClient) {
+    return res.status(500).json({ error: 'BACnet client not initialized' });
+  }
+
+  // Map object types to BACnet application tags
+  // 4: REAL (Analog Input/Output/Value)
+  // 9: ENUMERATED (Binary Input/Output/Value - 0: inactive, 1: active)
+  let tag = 4; // Default to REAL for analog
+  let processedValue = parseFloat(value);
+
+  if ([3, 4, 5].includes(objectId.type)) {
+    tag = 9; // ENUMERATED for binary
+    processedValue = (value === true || value === 1 || value === 'ON') ? 1 : 0;
+  }
+
+  console.log(`Writing to ${targetIp}: ${OBJECT_TYPES[objectId.type]} ${objectId.instance} -> ${processedValue} (Tag: ${tag}, Priority: ${priority || 16})`);
+
+  bacnetClient.writeProperty(
+    targetIp,
+    objectId,
+    85, // Property: present-value
+    [{ value: processedValue, type: tag }],
+    { priority: parseInt(priority) || 16 },
+    (err) => {
+      if (err) {
+        console.error(`WriteProperty Error [${targetIp}]:`, err.message);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ success: true });
     }
   );
 });

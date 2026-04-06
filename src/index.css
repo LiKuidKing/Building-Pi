@@ -193,9 +193,9 @@ body {
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(2, 1fr); /* 2 rows to fit everything nicely */
+  grid-template-rows: repeat(2, auto);
   gap: 1rem;
-  height: 100%;
+  flex-shrink: 0;
   padding-bottom: 0.5rem;
 }
 
@@ -462,6 +462,24 @@ body {
   box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
 }
 
+/* Ensure select dropdowns have dark background and white text */
+select.input-field {
+  background-color: #1f2937;
+  color: var(--text-main);
+  appearance: auto;
+  cursor: pointer;
+}
+
+select.input-field option {
+  background-color: #1f2937;
+  color: var(--text-main);
+}
+
+select.input-field option:disabled {
+  color: var(--text-muted);
+}
+
+
 .button-primary {
   background: linear-gradient(135deg, var(--color-weather), #0284c7);
   color: white;
@@ -657,5 +675,157 @@ body {
   display: flex;
   align-items: baseline;
   gap: 0.25rem;
+}
+
+/* Modals */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: #1f2937;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  padding: 1.5rem;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+  font-weight: bold;
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+/* Favorite Star */
+.favorite-star {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.favorite-star:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+  transform: scale(1.1);
+}
+
+.favorite-star.active {
+  color: #facc15;
+}
+
+/* Custom Widget Layouts */
+.widget-custom {
+  cursor: default;
+}
+
+.widget-settings-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 8px;
+  display: flex;
+  opacity: 0;
+  transition: all 0.2s;
+}
+
+.glass-panel:hover .widget-settings-btn {
+  opacity: 1;
+}
+
+.widget-settings-btn:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.graph-container {
+  flex-grow: 1;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  margin-top: 0.5rem;
+  min-height: 40px;
+}
+
+/* Writable points indicator */
+.point-card.writable {
+  border: 1px solid rgba(14, 165, 233, 0.2);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.point-card.writable:hover {
+  background: rgba(14, 165, 233, 0.05);
+  border-color: rgba(14, 165, 233, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -5px rgba(14,165,233,0.2);
+}
+
+.point-card.writable:active {
+  transform: translateY(0);
+}
+
+.point-value-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.edit-indicator {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: var(--color-weather);
+  background: rgba(14, 165, 233, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.6;
+}
+
+.point-card.writable:hover .edit-indicator {
+  opacity: 1;
+  background: rgba(14, 165, 233, 0.2);
+}
+
+@keyframes shine {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
