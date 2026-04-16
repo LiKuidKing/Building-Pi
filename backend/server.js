@@ -356,12 +356,7 @@ app.get('/api/modbus/ports', async (req, res) => {
   }
 });
 
-app.post('/api/modbus/connect', async (req, res) => {
-  const { path, baudRate, id } = req.body;
-  if (!path) {
-    return res.status(400).json({ error: 'Serial port path is required' });
-  }
-
+async function connectModbusDevice(path, baudRate, id) {
   try {
     if (modbusClient) {
       if (modbusClient.isOpen) modbusClient.close();
@@ -422,16 +417,41 @@ app.post('/api/modbus/connect', async (req, res) => {
         const ctAmpsData = await modbusClient.readHoldingRegisters(1602, 1);
         modbusData.ctAmps = ctAmpsData.data[0];
 
+        // 5. Additional Configurations (PtRatio & InvertCt)
+        try {
+          const invertCtData = await modbusClient.readHoldingRegisters(1606, 1);
+          modbusData.invertCt = invertCtData.data[0];
+          
+          const ptRatioData = await modbusClient.readHoldingRegisters(1638, 2);
+          modbusData.ptRatio = parseFloat32(ptRatioData.data, 0);
+        } catch (e) {
+          // Some older firmware might not map these registers exactly this way.
+        }
+
       } catch (err) {
         console.error('Modbus Polling Error:', err.message);
       }
     }, 2000);
 
-    res.json({ success: true, message: `Connected to ${path} at ${baudRate} bps` });
+    return null;
   } catch (error) {
     console.error('Modbus Connection Error:', error);
     modbusData.connected = false;
-    res.status(500).json({ error: error.message || 'Failed to connect to Modbus device' });
+    return error;
+  }
+}
+
+app.post('/api/modbus/connect', async (req, res) => {
+  const { path, baudRate, id } = req.body;
+  if (!path) {
+    return res.status(400).json({ error: 'Serial port path is required' });
+  }
+
+  const err = await connectModbusDevice(path, baudRate, id);
+  if (err) {
+    res.status(500).json({ error: err.message || 'Failed to connect to Modbus device' });
+  } else {
+    res.json({ success: true, message: `Connected to ${path} at ${baudRate} bps` });
   }
 });
 
@@ -472,6 +492,56 @@ app.post('/api/modbus/ctamps', async (req, res) => {
   } catch (error) {
     console.error('Error writing CT Amps:', error);
     res.status(500).json({ error: 'Failed to write CT Amps to Modbus device', details: error.message });
+  }
+});
+
+app.post('/api/modbus/ptratio', async (req, res) => {
+  if (!modbusClient || !modbusClient.isOpen) {
+    return res.status(500).json({ error: 'Modbus not connected' });
+  }
+  const value = parseFloat(req.body.ptRatio);
+  if (isNaN(value) || value <= 0) {
+    return res.status(400).json({ error: 'Invalid PT Ratio value. Must be a positive number.' });
+  }
+
+  try {
+    const buf = Buffer.alloc(4);
+    buf.writeFloatBE(value, 0);
+    // WattNode uses Little-Endian Word Swap
+    await modbusClient.writeRegisters(1638, [buf.readUInt16BE(2), buf.readUInt16BE(0)]);
+    modbusData.ptRatio = value;
+    res.json({ success: true, ptRatio: value });
+  } catch (error) {
+    console.error('Error writing PT Ratio:', error);
+    res.status(500).json({ error: 'Failed to write PT Ratio', details: error.message });
+  }
+});
+
+app.post('/api/modbus/invertct', async (req, res) => {
+  if (!modbusClient || !modbusClient.isOpen) {
+    return res.status(500).json({ error: 'Modbus not connected' });
+  }
+  const value = parseInt(req.body.invertCt, 10);
+  if (isNaN(value) || value < 0 || value > 7) {
+    return res.status(400).json({ error: 'Invalid InvertCT bitmask.' });
+  }
+
+  try {
+    await modbusClient.writeRegister(1606, value);
+    modbusData.invertCt = value;
+    res.json({ success: true, invertCt: value });
+  } catch (error) {
+    console.error('Error writing InvertCT:', error);
+    res.status(500).json({ error: 'Failed to write InvertCT', details: error.message });
+  }
+});
+
+// Auto-connect to WattNode on startup
+connectModbusDevice('/dev/ttyUSB0', 19200, 1).then(err => {
+  if (!err) {
+    console.log('Successfully auto-connected to WattNode Modbus device at /dev/ttyUSB0:19200');
+  } else {
+    console.log('Failed to auto-connect to WattNode:', err.message);
   }
 });
 

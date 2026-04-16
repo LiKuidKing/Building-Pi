@@ -216,6 +216,7 @@ function App() {
   const [modbusData, setModbusData] = useState({ connected: false, power: 0 });
   const [isConnectingModbus, setIsConnectingModbus] = useState(false);
   const [ctAmpsInput, setCtAmpsInput] = useState('');
+  const [ptRatioInput, setPtRatioInput] = useState('');
   const [editingPoint, setEditingPoint] = useState(null); // { device, point }
 
   const toggleModbusConnection = async () => {
@@ -1103,41 +1104,111 @@ function App() {
                   <Wrench size={20} />
                   Meter Configuration
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>Global Current Transformer (CT) Rating</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <input 
-                        type="number" 
-                        className="input-field" 
-                        placeholder={modbusData.ctAmps !== undefined ? `Current: ${modbusData.ctAmps}` : 'Loading...'}
-                        value={ctAmpsInput}
-                        onChange={(e) => setCtAmpsInput(e.target.value)}
-                        style={{ maxWidth: '150px' }}
-                      />
-                      <span style={{ color: 'var(--text-muted)', marginRight: '0.5rem' }}>Amps</span>
-                      <button className="button-primary" disabled={!ctAmpsInput} onClick={async () => {
-                        try {
-                          const res = await fetch('/api/modbus/ctamps', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ ctAmps: ctAmpsInput })
-                          });
-                          const data = await res.json();
-                          if (data.error) throw new Error(data.error);
-                          setCtAmpsInput('');
-                          alert('CT Amps successfully updated! The meter will now calculate power using ' + data.ctAmps + 'A.');
-                        } catch(e) {
-                          alert('Failed to update CT Amps: ' + e.message);
-                        }
-                      }}>
-                        Write to Meter
-                      </button>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1fr) minmax(300px, 1fr)', gap: '2rem', marginTop: '1rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>Global Current Transformer (CT) Rating</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input 
+                          type="number" 
+                          className="input-field" 
+                          placeholder={modbusData.ctAmps !== undefined ? `Current: ${modbusData.ctAmps}` : 'Loading...'}
+                          value={ctAmpsInput}
+                          onChange={(e) => setCtAmpsInput(e.target.value)}
+                          style={{ maxWidth: '120px' }}
+                        />
+                        <span style={{ color: 'var(--text-muted)', marginRight: '0.5rem' }}>A</span>
+                        <button className="button-primary" style={{ padding: '0.5rem 1rem' }} disabled={!ctAmpsInput} onClick={async () => {
+                          try {
+                            const res = await fetch('/api/modbus/ctamps', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ ctAmps: ctAmpsInput })
+                            });
+                            const data = await res.json();
+                            if (data.error) throw new Error(data.error);
+                            setCtAmpsInput('');
+                            alert('CT Amps successfully updated! The meter will now calculate power using ' + data.ctAmps + 'A.');
+                          } catch(e) {
+                            alert('Failed to update CT Amps: ' + e.message);
+                          }
+                        }}>
+                          Write
+                        </button>
+                      </div>
+                      <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem' }}>
+                        Rated amperage of physical CTs. Currently reading: <strong style={{ color: 'var(--text-main)' }}>{modbusData.ctAmps !== undefined ? `${modbusData.ctAmps} A` : '—'}</strong>
+                      </small>
                     </div>
-                    <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem' }}>
-                      Updates the rated amperage of the connected physical CTs on the WattNode meter. 
-                      Currently reading: <strong style={{ color: 'var(--text-main)' }}>{modbusData.ctAmps !== undefined ? `${modbusData.ctAmps} A` : '—'}</strong>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>Potential Transformer (PT) Ratio</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input 
+                          type="number" 
+                          step="0.1"
+                          className="input-field" 
+                          placeholder={modbusData.ptRatio !== undefined ? `Current: ${modbusData.ptRatio}` : 'Loading...'}
+                          value={ptRatioInput}
+                          onChange={(e) => setPtRatioInput(e.target.value)}
+                          style={{ maxWidth: '120px' }}
+                        />
+                        <span style={{ color: 'var(--text-muted)', marginRight: '0.5rem' }}>Ratio</span>
+                        <button className="button-primary" style={{ padding: '0.5rem 1rem' }} disabled={!ptRatioInput} onClick={async () => {
+                          try {
+                            const res = await fetch('/api/modbus/ptratio', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ ptRatio: ptRatioInput })
+                            });
+                            const data = await res.json();
+                            if (data.error) throw new Error(data.error);
+                            setPtRatioInput('');
+                          } catch(e) {
+                            alert('Failed to update PT Ratio: ' + e.message);
+                          }
+                        }}>
+                          Write
+                        </button>
+                      </div>
+                      <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem' }}>
+                        Currently reading: <strong style={{ color: 'var(--text-main)' }}>{modbusData.ptRatio !== undefined ? `${modbusData.ptRatio}` : '—'}</strong> (Default is 1.0)
+                      </small>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>CT Polarity Reversal (InvertCt)</label>
+                    <small style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '1rem' }}>
+                      If a CT is installed backwards (reading negative power), you can correct its polarity here without physical rewiring.
                     </small>
+                    
+                    <div style={{ display: 'flex', gap: '1rem' }}>
+                      {[0, 1, 2].map(bit => {
+                         const phase = ['A', 'B', 'C'][bit];
+                         const isReversed = modbusData.invertCt !== undefined ? (modbusData.invertCt & (1 << bit)) !== 0 : false;
+                         return (
+                           <div key={phase} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: `1px solid ${isReversed ? 'rgba(239, 68, 68, 0.5)' : 'rgba(255,255,255,0.1)'}`, flex: 1 }}>
+                             <span style={{ fontWeight: 'bold', marginBottom: '0.75rem' }}>Phase {phase}</span>
+                             <button
+                               className={isReversed ? 'button-primary' : 'button-secondary'}
+                               style={isReversed ? { background: '#ef4444', borderColor: '#ef4444' } : {}}
+                               onClick={async () => {
+                                 if (modbusData.invertCt === undefined) return;
+                                 const newVal = isReversed ? (modbusData.invertCt & ~(1 << bit)) : (modbusData.invertCt | (1 << bit));
+                                 try {
+                                    const res = await fetch('/api/modbus/invertct', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ invertCt: newVal }) });
+                                    const data = await res.json();
+                                    if (data.error) throw new Error(data.error);
+                                 } catch(e) { alert('Failed: ' + e.message); }
+                               }}
+                             >
+                               {isReversed ? 'Reversed' : 'Normal'}
+                             </button>
+                           </div>
+                         );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
