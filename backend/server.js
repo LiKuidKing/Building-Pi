@@ -536,14 +536,18 @@ app.post('/api/modbus/invertct', async (req, res) => {
   }
 });
 
-// Auto-connect to WattNode on startup
-connectModbusDevice('/dev/ttyUSB0', 19200, 1).then(err => {
-  if (!err) {
-    console.log('Successfully auto-connected to WattNode Modbus device at /dev/ttyUSB0:19200');
-  } else {
-    console.log('Failed to auto-connect to WattNode:', err.message);
-  }
-});
+// Auto-connect to WattNode on startup (Skip on Windows during local development)
+if (os.platform() !== 'win32') {
+  connectModbusDevice('/dev/ttyUSB0', 19200, 1).then(err => {
+    if (!err) {
+      console.log('Successfully auto-connected to WattNode Modbus device at /dev/ttyUSB0:19200');
+    } else {
+      console.log('Failed to auto-connect to WattNode:', err.message);
+    }
+  });
+} else {
+  console.log('Running on Windows: Skipping auto-connection to Linux Modbus device.');
+}
 
 app.listen(port, () => {
   console.log(`BACnet backend server running on http://localhost:${port}`);
