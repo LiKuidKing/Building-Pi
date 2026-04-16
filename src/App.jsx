@@ -215,6 +215,7 @@ function App() {
   const [modbusPorts, setModbusPorts] = useState([]);
   const [modbusData, setModbusData] = useState({ connected: false, power: 0 });
   const [isConnectingModbus, setIsConnectingModbus] = useState(false);
+  const [ctAmpsInput, setCtAmpsInput] = useState('');
   const [editingPoint, setEditingPoint] = useState(null); // { device, point }
 
   const toggleModbusConnection = async () => {
@@ -1096,6 +1097,52 @@ function App() {
               </div>
             </div>
             
+            {modbusData.connected && (
+              <div className="config-section" style={{ marginTop: '1rem' }}>
+                <div className="section-title">
+                  <Wrench size={20} />
+                  Meter Configuration
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>Global Current Transformer (CT) Rating</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <input 
+                        type="number" 
+                        className="input-field" 
+                        placeholder={modbusData.ctAmps !== undefined ? `Current: ${modbusData.ctAmps}` : 'Loading...'}
+                        value={ctAmpsInput}
+                        onChange={(e) => setCtAmpsInput(e.target.value)}
+                        style={{ maxWidth: '150px' }}
+                      />
+                      <span style={{ color: 'var(--text-muted)', marginRight: '0.5rem' }}>Amps</span>
+                      <button className="button-primary" disabled={!ctAmpsInput} onClick={async () => {
+                        try {
+                          const res = await fetch('/api/modbus/ctamps', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ctAmps: ctAmpsInput })
+                          });
+                          const data = await res.json();
+                          if (data.error) throw new Error(data.error);
+                          setCtAmpsInput('');
+                          alert('CT Amps successfully updated! The meter will now calculate power using ' + data.ctAmps + 'A.');
+                        } catch(e) {
+                          alert('Failed to update CT Amps: ' + e.message);
+                        }
+                      }}>
+                        Write to Meter
+                      </button>
+                    </div>
+                    <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem' }}>
+                      Updates the rated amperage of the connected physical CTs on the WattNode meter. 
+                      Currently reading: <strong style={{ color: 'var(--text-main)' }}>{modbusData.ctAmps !== undefined ? `${modbusData.ctAmps} A` : '—'}</strong>
+                    </small>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="config-section" style={{ marginTop: '1rem', flexGrow: 1 }}>
               <div className="section-title">
                 <Activity size={20} />

@@ -418,6 +418,10 @@ app.post('/api/modbus/connect', async (req, res) => {
         modbusData.currentB = parseFloat32(currentData.data, 2);
         modbusData.currentC = parseFloat32(currentData.data, 4);
 
+        // 4. CT Amps Configuration (Register 1603, wire address 1602)
+        const ctAmpsData = await modbusClient.readHoldingRegisters(1602, 1);
+        modbusData.ctAmps = ctAmpsData.data[0];
+
       } catch (err) {
         console.error('Modbus Polling Error:', err.message);
       }
@@ -446,6 +450,29 @@ app.post('/api/modbus/disconnect', (req, res) => {
 
 app.get('/api/modbus/data', (req, res) => {
   res.json(modbusData);
+});
+
+app.post('/api/modbus/ctamps', async (req, res) => {
+  if (!modbusClient || !modbusClient.isOpen) {
+    return res.status(500).json({ error: 'Modbus not connected' });
+  }
+  const { ctAmps } = req.body;
+  const value = parseInt(ctAmps, 10);
+  
+  if (isNaN(value) || value <= 0 || value > 10000) {
+    return res.status(400).json({ error: 'Invalid CT Amps value. Must be a positive integer.' });
+  }
+
+  try {
+    // Write to Register 1603 (Wire Address 1602)
+    await modbusClient.writeRegister(1602, value);
+    // Optimistically update the cached data
+    modbusData.ctAmps = value;
+    res.json({ success: true, ctAmps: value });
+  } catch (error) {
+    console.error('Error writing CT Amps:', error);
+    res.status(500).json({ error: 'Failed to write CT Amps to Modbus device', details: error.message });
+  }
 });
 
 app.listen(port, () => {
