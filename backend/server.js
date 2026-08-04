@@ -204,7 +204,7 @@ app.get('/api/bacnet/device/:ip/:deviceId/objects', (req, res) => {
         .filter(obj => obj.value.type !== 8)
         .map(obj => obj.value);
 
-      // Now we read the Object Name (Property ID 77) for each discovered object
+      // Now we read the Object Name (Property ID 77) and Units (Property ID 117) for each discovered object
       const namePromises = objectRefs.map(obj => {
         return new Promise((resolve) => {
           bacnetClient.readProperty(targetIp, obj, 77, (nameErr, nameValue) => {
@@ -213,16 +213,38 @@ app.get('/api/bacnet/device/:ip/:deviceId/objects', (req, res) => {
             if (!nameErr && nameValue && nameValue.values && nameValue.values.length > 0) {
               assignedName = nameValue.values[0].value;
             }
-            
-            resolve({
-              objectId: obj,
-              id: `${OBJECT_TYPES[obj.type] || 'Obj'}-${obj.instance}`,
-              typeId: obj.type,
-              instance: obj.instance,
-              name: assignedName,
-              value: '---', // Will be populated by polling/read requests
-              unit: ''
-            });
+
+            // Read Units property (ID 117) for analog object types (AI, AO, AV)
+            const isAnalog = [0, 1, 2].includes(obj.type);
+            if (isAnalog) {
+              bacnetClient.readProperty(targetIp, obj, 117, (unitErr, unitValue) => {
+                let unitId = 95; // Default to NO_UNITS (95)
+                if (!unitErr && unitValue && unitValue.values && unitValue.values.length > 0) {
+                  unitId = unitValue.values[0].value;
+                }
+                resolve({
+                  objectId: obj,
+                  id: `${OBJECT_TYPES[obj.type] || 'Obj'}-${obj.instance}`,
+                  typeId: obj.type,
+                  instance: obj.instance,
+                  name: assignedName,
+                  value: '---',
+                  unit: '',
+                  unitId: unitId
+                });
+              });
+            } else {
+              resolve({
+                objectId: obj,
+                id: `${OBJECT_TYPES[obj.type] || 'Obj'}-${obj.instance}`,
+                typeId: obj.type,
+                instance: obj.instance,
+                name: assignedName,
+                value: '---',
+                unit: '',
+                unitId: null
+              });
+            }
           });
         });
       });

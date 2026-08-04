@@ -27,6 +27,83 @@ import {
 } from 'lucide-react';
 import './index.css';
 
+// ─── BACnet Engineering Units Lookup (ASHRAE 135 Enum ID → Display Symbol) ───
+const BACNET_UNITS = {
+  0: 'm²', 1: 'ft²', 2: 'mA', 3: 'A', 4: 'Ω', 5: 'V', 6: 'kV', 7: 'MV',
+  8: 'VA', 9: 'kVA', 10: 'MVA', 11: 'var', 12: 'kvar', 13: 'Mvar',
+  14: '°', 15: 'PF', 16: 'J', 17: 'kJ', 18: 'Wh', 19: 'kWh',
+  20: 'Btu', 21: 'therm', 22: 'ton-h', 23: 'J/kg', 24: 'Btu/lb',
+  25: 'cph', 26: 'cpm', 27: 'Hz', 28: 'g/kg', 29: '%RH',
+  30: 'mm', 31: 'Pa', 32: 'hPa', 33: 'kPa', 34: 'mbar',
+  35: 'bar',
+  36: 'lm', 37: 'lx', 38: 'fc',
+  39: 'kg', 40: 'lb', 41: 'ton',
+  42: 'kg/s', 43: 'kg/min', 44: 'kg/h',
+  45: 'lb/min', 46: 'lb/h',
+  47: 'W', 48: 'kW', 49: 'MW', 50: 'Btu/h', 51: 'hp', 52: 'ton',
+  53: 'Pa', 54: 'kPa', 55: 'bar', 56: 'psi',
+  57: 'cmH₂O', 58: 'inH₂O', 59: 'mmHg', 60: 'cmHg', 61: 'inHg',
+  62: '°C', 63: 'K', 64: '°F',
+  65: '°C-days', 66: '°F-days',
+  67: 'yr', 68: 'mo', 69: 'wk', 70: 'd', 71: 'h', 72: 'min', 73: 's',
+  74: 'm/s', 75: 'km/h', 76: 'ft/s', 77: 'ft/min', 78: 'mph',
+  79: 'ft³', 80: 'm³', 81: 'Imp gal', 82: 'L', 83: 'US gal',
+  84: 'cfm', 85: 'm³/s', 86: 'Imp gal/min', 87: 'L/s', 88: 'L/min', 89: 'US gal/min',
+  90: '°', 91: '°C/h', 92: '°C/min', 93: '°F/h', 94: '°F/min',
+  95: '', // NO_UNITS
+  96: 'ppm', 97: 'ppb', 98: '%', 99: '%/s', 100: '/min', 101: '/s',
+  102: 'psi/°F', 103: 'rad', 104: 'RPM',
+  105: '¤1', 106: '¤2', 107: '¤3', 108: '¤4', 109: '¤5',
+  110: '¤6', 111: '¤7', 112: '¤8', 113: '¤9', 114: '¤10',
+  115: 'in²', 116: 'cm²', 117: 'Btu/lb', 118: 'cm',
+  119: 'lb/s', 120: 'Δ°F', 121: 'ΔK',
+  122: 'kΩ', 123: 'MΩ', 124: 'mV', 125: 'kJ/kg', 126: 'MJ',
+  127: 'J/K', 128: 'J/(kg·K)', 129: 'kHz', 130: 'MHz', 131: '/h',
+  132: 'mW', 133: 'hPa', 134: 'mbar', 135: 'm³/h', 136: 'L/h',
+  137: 'kWh/m²', 138: 'kWh/ft²', 139: 'MJ/m²', 140: 'MJ/ft²',
+  141: 'W/(m²·K)', 142: 'ft³/s', 143: '%obs/ft', 144: '%obs/m',
+  145: 'mΩ', 146: 'MWh', 147: 'kBtu', 148: 'MBtu',
+  149: 'kJ/kg-da', 150: 'MJ/kg-da', 151: 'kJ/K', 152: 'MJ/K',
+  153: 'N', 154: 'g/s', 155: 'g/min', 156: 'ton/h',
+  157: 'kBtu/h', 158: '×0.01s', 159: 'ms', 160: 'N·m',
+  161: 'mm/s', 162: 'mm/min', 163: 'm/min', 164: 'm/h', 165: 'm³/min',
+  166: 'm/s²', 167: 'A/m', 168: 'A/m²', 169: 'A·m²',
+  170: 'F', 171: 'H', 172: 'Ω·m', 173: 'S', 174: 'S/m', 175: 'T',
+  176: 'V/K', 177: 'V/m', 178: 'Wb',
+  179: 'cd', 180: 'cd/m²', 181: 'K/h', 182: 'K/min',
+  183: 'J·s', 184: 'rad/s', 185: 'm²/N',
+  186: 'kg/m³', 187: 'N·s', 188: 'N/m', 189: 'W/(m·K)',
+  190: 'µS', 191: 'ft³/h', 192: 'US gal/h', 193: 'km',
+  194: 'µm', 195: 'g', 196: 'mg', 197: 'mL', 198: 'mL/s',
+  199: 'dB', 200: 'dBmV', 201: 'dBV', 202: 'mS',
+  203: 'varh', 204: 'kvarh', 205: 'Mvarh',
+  206: 'mmH₂O', 207: '‰',
+  208: 'g/g', 209: 'kg/kg', 210: 'g/kg', 211: 'mg/g', 212: 'mg/kg',
+  213: 'g/mL', 214: 'g/L', 215: 'mg/L', 216: 'µg/L',
+  217: 'g/m³', 218: 'mg/m³', 219: 'µg/m³', 220: 'ng/m³', 221: 'g/cm³',
+  222: 'Bq', 223: 'kBq', 224: 'MBq',
+  225: 'Gy', 226: 'mGy', 227: 'µGy',
+  228: 'Sv', 229: 'mSv', 230: 'µSv', 231: 'µSv/h',
+  232: 'dBA', 233: 'NTU', 234: 'pH',
+  235: 'g/m²', 236: 'min/K',
+  237: 'Ω·m²/m', 238: 'A·s',
+  239: 'VAh', 240: 'kVAh', 241: 'MVAh',
+  242: 'varh', 243: 'kvarh', 244: 'Mvarh',
+  245: 'V²h', 246: 'A²h', 247: 'J/h',
+  248: 'ft³/d', 249: 'm³/d', 250: 'Wh/m³', 251: 'J/m³',
+  252: 'mol%', 253: 'Pa·s', 254: 'MMscfm',
+};
+
+/**
+ * Resolves a BACnet unit enum ID to its display symbol.
+ * Returns empty string for unknown/no-units.
+ */
+function getBacnetUnitSymbol(unitId) {
+  if (unitId === null || unitId === undefined) return '';
+  return BACNET_UNITS[unitId] ?? '';
+}
+
+
 // ─── Sparkline SVG helper ────────────────────────────────────────────────────
 function Sparkline({ data, color = '#0ea5e9' }) {
   if (!data || data.length < 2) return <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', paddingTop: '0.5rem' }}>Waiting for data…</div>;
@@ -343,7 +420,7 @@ function App() {
         pointId: point.id,
         name: point.name,
         displayType: 'value',
-        unit: point.unit || '',
+        unit: point.unit || getBacnetUnitSymbol(point.unitId),
         maxValue: 100,
       }]);
     }
@@ -1010,7 +1087,7 @@ function App() {
                       </div>
                       <div className="point-value-container">
                         <div className="point-value" style={{ color: point.value === 'ON' ? '#4ade80' : point.value === 'OFF' ? '#f87171' : 'var(--text-main)' }}>
-                          {point.value} <span className="unit">{point.unit}</span>
+                          {point.value} <span className="unit">{point.unit || getBacnetUnitSymbol(point.unitId)}</span>
                         </div>
                         {isWritable && (
                           <div className="edit-indicator">
