@@ -263,26 +263,19 @@ const initialHistory = [
 function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [power, setPower] = useState(12.4);
-  const [batteryCharge, setBatteryCharge] = useState(300);
-  const [batteryPower, setBatteryPower] = useState(-5.2);
-  const [temperature, setTemperature] = useState(22.4);
-  const [history] = useState(initialHistory);
-  const [elecPrice, setElecPrice] = useState(0.12);
+  
+  // Live Weather State
+  const [weather, setWeather] = useState({ temperatureF: '--', temperature: '--', weathercode: null, isLoaded: false });
 
-  // BACnet State — initialized from localStorage
+  // BACnet State — initialized from backend persistence API
   const [bacnetConfig, setBacnetConfig] = useState({ ip: '192.168.1.100', subnet: '255.255.255.0', port: '47808' });
-  const [bacnetDevices, setBacnetDevices] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('bacnetDevices') || '[]'); } catch { return []; }
-  });
+  const [bacnetDevices, setBacnetDevices] = useState([]);
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveredDevices, setDiscoveredDevices] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
 
   // Favorites — dashboard widgets pinned from BACnet points
-  const [favorites, setFavorites] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('bacnetFavorites') || '[]'); } catch { return []; }
-  });
+  const [favorites, setFavorites] = useState([]);
   // Rolling history for graph widgets: { [favoriteId]: number[] }
   const [pointHistories, setPointHistories] = useState({});
   const [editingFavorite, setEditingFavorite] = useState(null);
@@ -301,7 +294,6 @@ function App() {
     try {
       if (modbusData.connected) {
         await fetch('/api/modbus/disconnect', { method: 'POST' });
-        // Assume disconnected immediately to avoid UI delay
         setModbusData(prev => ({ ...prev, connected: false }));
       } else {
         const res = await fetch('/api/modbus/connect', {
@@ -311,7 +303,6 @@ function App() {
         });
         const data = await res.json();
         if (data.error) throw new Error(data.error);
-        // Connect successful, polling will pick up the 'connected' state shortly
       }
     } catch (e) {
       console.error(e);
@@ -390,30 +381,59 @@ function App() {
         }
 
         const newDevice = { ...device, points: initialPoints };
-        setBacnetDevices(prev => [...prev, newDevice]);
+        const updatedDevices = [...bacnetDevices, newDevice];
+        setBacnetDevices(updatedDevices);
+        
+        // Save to backend persistent store
+        await fetch('/api/devices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedDevices)
+        });
       } catch (e) {
         console.error('Add device error:', e);
       }
     }
   };
 
-  const deleteDevice = (deviceId) => {
-    setBacnetDevices(prev => prev.filter(d => d.id !== deviceId));
-    // Also remove any favorites tied to this device
-    setFavorites(prev => prev.filter(f => f.deviceId !== deviceId));
+  const deleteDevice = async (deviceId) => {
+    const updated = bacnetDevices.filter(d => d.id !== deviceId);
+    setBacnetDevices(updated);
+    
+    const updatedFavs = favorites.filter(f => f.deviceId !== deviceId);
+    setFavorites(updatedFavs);
     if (selectedDevice?.id === deviceId) setSelectedDevice(null);
+
+    try {
+      await fetch(`/api/devices/${deviceId}`, { method: 'DELETE' });
+    } catch (e) {
+      console.error('Failed to delete device from server:', e);
+    }
   };
 
   // ─── Favorites helpers ───────────────────────────────────────────────
   const isFavorited = (deviceId, pointId) =>
     favorites.some(f => f.deviceId === deviceId && f.pointId === pointId);
 
+  const saveFavoritesToServer = async (newFavs) => {
+    try {
+      await fetch('/api/favorites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newFavs)
+      });
+    } catch (e) {
+      console.error('Failed to sync favorites to server:', e);
+    }
+  };
+
   const toggleFavorite = (device, point) => {
     const key = `${device.id}_${point.id}`;
+    let newFavs;
     if (isFavorited(device.id, point.id)) {
-      setFavorites(prev => prev.filter(f => f.id !== key));
+      newFavs = favorites.filter(f => f.id !== key);
     } else {
-      setFavorites(prev => [...prev, {
+      newFavs = [...favorites, {
         id: key,
         deviceId: device.id,
         deviceName: device.name,
@@ -422,17 +442,23 @@ function App() {
         displayType: 'value',
         unit: point.unit || getBacnetUnitSymbol(point.unitId),
         maxValue: 100,
-      }]);
+      }];
     }
+    setFavorites(newFavs);
+    saveFavoritesToServer(newFavs);
   };
 
   const saveFavoriteSettings = (updatedFav) => {
-    setFavorites(prev => prev.map(f => f.id === updatedFav.id ? updatedFav : f));
+    const newFavs = favorites.map(f => f.id === updatedFav.id ? updatedFav : f);
+    setFavorites(newFavs);
+    saveFavoritesToServer(newFavs);
     setEditingFavorite(null);
   };
 
   const removeFavorite = (favId) => {
-    setFavorites(prev => prev.filter(f => f.id !== favId));
+    const newFavs = favorites.filter(f => f.id !== favId);
+    setFavorites(newFavs);
+    saveFavoritesToServer(newFavs);
     setEditingFavorite(null);
   };
 
@@ -444,8 +470,22 @@ function App() {
     return point?.value ?? null;
   };
 
-  // Automatically fetch the Pi's actual IP address ONLY once on mount
+  // Helper to find a specific BACnet point across all devices (for Thermelect dashboard cards)
+  const findBacnetPointByName = (nameKeywords) => {
+    for (const d of bacnetDevices) {
+      for (const p of d.points) {
+        const lower = p.name ? p.name.toLowerCase() : '';
+        if (nameKeywords.some(kw => lower.includes(kw.toLowerCase()))) {
+          return p;
+        }
+      }
+    }
+    return null;
+  };
+
+  // Automatically fetch Pi IP, stored devices, stored favorites, and live weather on mount
   useEffect(() => {
+    // 1. Fetch IP
     fetch('/api/network/ip')
       .then(res => res.json())
       .then(data => {
@@ -454,17 +494,50 @@ function App() {
         }
       })
       .catch(e => console.error("Could not fetch local network IP:", e));
+
+    // 2. Fetch persistent devices
+    fetch('/api/devices')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setBacnetDevices(data);
+      })
+      .catch(e => console.error("Could not load stored devices:", e));
+
+    // 3. Fetch persistent favorites
+    fetch('/api/favorites')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setFavorites(data);
+      })
+      .catch(e => console.error("Could not load stored favorites:", e));
+
+    // 4. Fetch live outdoor weather
+    const loadWeather = () => {
+      fetch('/api/weather')
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.temperatureF !== undefined) {
+            setWeather({ ...data, isLoaded: true });
+          }
+        })
+        .catch(e => console.error("Could not fetch weather:", e));
+    };
+    loadWeather();
+    const weatherTimer = setInterval(loadWeather, 300000); // 5 min interval
+
+    return () => clearInterval(weatherTimer);
   }, []);
 
-  // Persist devices to localStorage whenever they change
+  // Sync device changes to backend store whenever points refresh
   useEffect(() => {
-    localStorage.setItem('bacnetDevices', JSON.stringify(bacnetDevices));
+    if (bacnetDevices.length > 0) {
+      fetch('/api/devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bacnetDevices)
+      }).catch(e => console.error("Sync devices error:", e));
+    }
   }, [bacnetDevices]);
-
-  // Persist favorites to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('bacnetFavorites', JSON.stringify(favorites));
-  }, [favorites]);
 
   // Roll history for graph-mode favorites
   useEffect(() => {
@@ -483,43 +556,6 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bacnetDevices]);
 
-  // Data simulation loop
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // Fluctuate power consumption ONLY if Modbus is NOT providing live data
-      if (!modbusData.connected) {
-        setPower(prev => Math.max(0, +(prev + (Math.random() - 0.5)).toFixed(1)));
-      }
-
-      // Fluctuate battery draw
-      setBatteryPower(prev => +(prev + (Math.random() * 2 - 1)).toFixed(1));
-
-      // Affect charge based on draw
-      setBatteryCharge(prev => {
-        let newCharge = prev - (batteryPower * 0.05); // Simulated drain/charge
-        if (newCharge > 440) newCharge = 440;
-        if (newCharge < 0) newCharge = 0;
-        return +(newCharge).toFixed(0);
-      });
-
-      // Very slow temperature fluctuation
-      setTemperature(prev => +(prev + (Math.random() * 0.4 - 0.2)).toFixed(1));
-
-      // Fluctuate electricity price (between $0.08 and $0.24)
-      setElecPrice(prev => {
-        let change = (Math.random() - 0.5) * 0.02;
-        let newPrice = prev + change;
-        if (newPrice < 0.08) newPrice = 0.08;
-        if (newPrice > 0.24) newPrice = 0.24;
-        return +(newPrice).toFixed(3);
-      });
-
-    }, 3000);
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, [batteryPower, modbusData.connected]);
 
   // Fetch Modbus Ports
   useEffect(() => {
@@ -684,7 +720,7 @@ function App() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%', overflowY: 'auto', paddingRight: '0.25rem' }}>
           <div className="dashboard-grid">
 
-            {/* Building Power Widget */}
+            {/* Facility Load Widget (Bound to Real Modbus Total Power) */}
             <div className="glass-panel power">
               <div className="widget-header">
                 <div className="icon-wrapper">
@@ -695,75 +731,126 @@ function App() {
               </div>
               <div className="widget-body">
                 <div className="main-value">
-                  {power.toFixed(1)} <span className="unit">kW</span>
+                  {modbusData.connected 
+                    ? (modbusData.powerTotal ? (modbusData.powerTotal / 1000).toFixed(1) : modbusData.power.toFixed(1)) 
+                    : '0.0'} <span className="unit">kW</span>
                 </div>
                 <div className="sub-info">
-                  <Activity size={16} color="#eab308" />
-                  <span>Current direct load</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Thermal Storage Battery Widget */}
-            <div className="glass-panel battery">
-              <div className="widget-header">
-                <div className="icon-wrapper">
-                  <BatteryCharging size={24} />
-                </div>
-                <span className="widget-title">Thermal Storage</span>
-              </div>
-              <div className="widget-body">
-                <div className="main-value">
-                  {batteryCharge} <span className="unit">/ 440 kW</span>
-                </div>
-                <div className="battery-container">
-                  <div
-                    className="battery-fill"
-                    style={{ width: `${(batteryCharge / 440) * 100}%` }}
-                  ></div>
-                </div>
-                <div className="sub-info" style={{ marginTop: '0.75rem' }}>
-                  {batteryPower < 0 ? (
-                    <ArrowDownRight size={16} color="#ef4444" />
-                  ) : (
-                    <ArrowUpRight size={16} color="#22c55e" />
-                  )}
+                  <Activity size={16} color={modbusData.connected ? "#22c55e" : "#94a3b8"} />
                   <span>
-                    {Math.abs(batteryPower).toFixed(1)} kW
-                    <span className="sub-info-value" style={{ marginLeft: '4px' }}>
-                      {batteryPower < 0 ? 'Discharging' : 'Charging'}
-                    </span>
+                    {modbusData.connected ? (
+                      <span style={{ color: '#22c55e' }}>Live Modbus RTU Load</span>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)' }}>Modbus Disconnected</span>
+                    )}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Electricity Price Widget (NEW) */}
-            <div className="glass-panel price">
-              <div className="widget-header">
-                <div className="icon-wrapper">
-                  <DollarSign size={24} />
-                </div>
-                <span className="widget-title">Grid Pricing</span>
-              </div>
-              <div className="widget-body">
-                <div className="main-value">
-                  ${elecPrice.toFixed(3)} <span className="unit">/ kWh</span>
-                </div>
-                <div className="sub-info">
-                  {elecPrice > 0.18 ? (
-                    <TrendingUp size={16} color="#ef4444" />
-                  ) : (
-                    <TrendingDown size={16} color="#22c55e" />
-                  )}
-                  <span style={{ color: elecPrice > 0.18 ? '#ef4444' : '#22c55e' }}>
-                    {elecPrice > 0.18 ? 'On-Peak Rate' : 'Off-Peak Rate'}
-                  </span>
-                </div>
-              </div>
-            </div>
+            {/* Thermal Storage / Core Temp Widget (Bound to BACnet Thermelect Points) */}
+            {(() => {
+              const coreTempPoint = findBacnetPointByName(['core temp top', 'core top temp', 'core temp mid', 'thermal storage']);
+              const displayVal = coreTempPoint ? coreTempPoint.value : '---';
+              const unit = coreTempPoint ? (coreTempPoint.unit || getBacnetUnitSymbol(coreTempPoint.unitId)) : '°C';
+              const numVal = parseFloat(displayVal);
+              const isPercent = unit === '%' || displayVal.includes('%');
+              const pct = isPercent && !isNaN(numVal) ? Math.min(100, Math.max(0, numVal)) : null;
 
-            {/* Weather Forecast Widget */}
+              return (
+                <div className="glass-panel battery">
+                  <div className="widget-header">
+                    <div className="icon-wrapper">
+                      <BatteryCharging size={24} />
+                    </div>
+                    <span className="widget-title">Thermal Storage</span>
+                  </div>
+                  <div className="widget-body">
+                    <div className="main-value">
+                      {displayVal} <span className="unit">{unit}</span>
+                    </div>
+                    {pct !== null ? (
+                      <div className="battery-container" style={{ marginTop: '0.5rem' }}>
+                        <div className="battery-fill" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #0284c7, #38bdf8)' }}></div>
+                      </div>
+                    ) : (
+                      <div className="sub-info" style={{ marginTop: '0.5rem' }}>
+                        <Activity size={16} color="#38bdf8" />
+                        <span>{coreTempPoint ? coreTempPoint.name : 'Connect Thermelect BACnet unit'}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Thermelect Equipment Status Card */}
+            {(() => {
+              const blowerPoint = findBacnetPointByName(['blower']);
+              const pumpPoint = findBacnetPointByName(['pump']);
+              const heatCallPoint = findBacnetPointByName(['heat call']);
+              
+              // Count active heating elements
+              let activeElementsCount = 0;
+              for (let i = 1; i <= 9; i++) {
+                const el = findBacnetPointByName([`heating element ${i}`]);
+                if (el && (el.value === 'ON' || el.value === '1' || el.value === true)) {
+                  activeElementsCount++;
+                }
+              }
+
+              const blowerOn = blowerPoint && (blowerPoint.value === 'ON' || blowerPoint.value === '1');
+              const pumpOn = pumpPoint && (pumpPoint.value === 'ON' || pumpPoint.value === '1');
+              const heatCallOn = heatCallPoint && (heatCallPoint.value === 'ON' || heatCallPoint.value === '1');
+
+              return (
+                <div className="glass-panel" style={{ gridColumn: 'span 2' }}>
+                  <div className="widget-header">
+                    <div className="icon-wrapper">
+                      <Wrench size={20} color="#facc15" />
+                    </div>
+                    <span className="widget-title">Thermelect System Operating Status</span>
+                  </div>
+                  <div className="widget-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginTop: '0.25rem' }}>
+                    
+                    {/* Blower Tile */}
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Blower</div>
+                      <span className={`device-status ${!blowerOn ? 'offline' : ''}`} style={{ background: blowerOn ? 'rgba(34, 197, 94, 0.2)' : undefined, color: blowerOn ? '#4ade80' : undefined }}>
+                        {blowerPoint ? (blowerOn ? 'RUNNING' : 'OFF') : 'N/A'}
+                      </span>
+                    </div>
+
+                    {/* Pump Tile */}
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Pump</div>
+                      <span className={`device-status ${!pumpOn ? 'offline' : ''}`} style={{ background: pumpOn ? 'rgba(34, 197, 94, 0.2)' : undefined, color: pumpOn ? '#4ade80' : undefined }}>
+                        {pumpPoint ? (pumpOn ? 'RUNNING' : 'OFF') : 'N/A'}
+                      </span>
+                    </div>
+
+                    {/* Heat Call Tile */}
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Heat Call</div>
+                      <span className={`device-status ${!heatCallOn ? 'offline' : ''}`} style={{ background: heatCallOn ? 'rgba(250, 204, 21, 0.2)' : undefined, color: heatCallOn ? '#facc15' : undefined }}>
+                        {heatCallPoint ? (heatCallOn ? 'ACTIVE' : 'IDLE') : 'N/A'}
+                      </span>
+                    </div>
+
+                    {/* Heating Elements Tile */}
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Elements</div>
+                      <div style={{ fontSize: '1rem', fontWeight: 'bold', color: activeElementsCount > 0 ? '#facc15' : 'var(--text-muted)' }}>
+                        {activeElementsCount} / 9 ON
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Weather Forecast Widget (Bound to Live Open-Meteo API) */}
             <div className="glass-panel weather">
               <div className="widget-header">
                 <div className="icon-wrapper">
@@ -773,33 +860,12 @@ function App() {
               </div>
               <div className="widget-body">
                 <div className="main-value">
-                  {temperature.toFixed(1)} <span className="unit">°C</span>
+                  {weather.isLoaded ? weather.temperatureF : '--'} <span className="unit">°F</span>
                 </div>
                 <div className="sub-info">
-                  <span>Outdoor Ambient</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Monthly Highs & Lows Database Widget */}
-            <div className="glass-panel history" style={{ gridColumn: 'span 2' }}>
-              <div className="widget-header">
-                <div className="icon-wrapper">
-                  <History size={24} />
-                </div>
-                <span className="widget-title">Monthly Load Extremes (kW)</span>
-              </div>
-              <div className="widget-body">
-                <div className="history-list">
-                  {history.map((record) => (
-                    <div key={record.month} className="history-item">
-                      <div className="history-month">{record.month}</div>
-                      <div className="history-stats">
-                        <span className="high-stat">High: {record.high.toFixed(1)}</span>
-                        <span className="low-stat">Low: {record.low.toFixed(1)}</span>
-                      </div>
-                    </div>
-                  ))}
+                  <span>
+                    {weather.isLoaded ? `${weather.temperature} °C • Live Outdoor Ambient` : 'Loading Weather...'}
+                  </span>
                 </div>
               </div>
             </div>

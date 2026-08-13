@@ -10,3 +10,5 @@ services:
     privileged: true # Allows access to host hardware devices (RS485 adapters)
     volumes:
       - /dev:/dev # Mounts the host's device tree so serial adapters populate dynamically
+      - ./data:/app/data # Persistent storage for devices, favorites, and system config
+

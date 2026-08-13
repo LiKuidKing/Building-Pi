@@ -1,0 +1,222 @@
+PROGRAM ModbusBACnetMapping
+VAR
+	
+	// Union arrays for decoding/encoding the 32-bit values and units
+	AnalogValues_Decoded : ARRAY[0..9] OF UNION_Modbus32;  // 5 variables * 2 (Value + Unit)
+	AnalogInputs_Decoded : ARRAY[0..33] OF UNION_Modbus32; // 17 variables * 2 (Value + Unit)
+	
+	i : INT;
+END_VAR
+
+// ============================================================
+// 0. Map Internal Values to BACnet Variables
+// ============================================================
+// Analog Inputs
+BACnet.core_temp_top := Sensors.temp_top.value;
+BACnet.core_temp_mid := Sensors.temp_mid.value;
+BACnet.core_temp_bot := Sensors.temp_bot.value;
+BACnet.hx_outlet_temp := Sensors.temp_water.value;
+BACnet.outdoor_temp_te := Sensors.temp_outdoor.value;
+BACnet.power_consumption := CalcProcess.kw_power_consumption;
+BACnet.percent_charged := CalcProcess.pct_charge_level;
+BACnet.charge_rate_setting := INT_TO_REAL(Settings.charge_rate_mode);
+BACnet.charge_target_setting := INT_TO_REAL(Settings.charge_level_mode);
+BACnet.current_target_core_temp := 0; // Update with actual value if available
+BACnet.current_charge_percent := CalcProcess.pct_charge_level;
+BACnet.state_machine_status := HeatExchanger.state; // Should include charge info?
+BACnet.blower_fan_speed := 0; // Update with actual value if available
+BACnet.max_core_temp_setting := Settings.manual_max_core_temp;
+BACnet.fan_water_temp_setpoint := Settings.fan_setpoint;
+BACnet.zone_hysteresis := Settings.hysteresis;
+BACnet.pump_start_duration := Settings.pump_start_duration;
+	
+// Binary inputs
+BACnet.heating_elements.0 := Equipment.element1.output;
+BACnet.heating_elements.1 := Equipment.element2.output;
+BACnet.heating_elements.2 := Equipment.element3.output;
+BACnet.heating_elements.3 := Equipment.element4.output;
+BACnet.heating_elements.4 := Equipment.element5.output;
+BACnet.heating_elements.5 := Equipment.element6.output;
+BACnet.heating_elements.6 := Equipment.element7.output;
+BACnet.heating_elements.7 := Equipment.element8.output;
+BACnet.heating_elements.8 := Equipment.element9.output;
+
+BACnet.blower_status := Equipment.fan.output;
+BACnet.pump_status := Equipment.pump.output;
+	
+// Binary values
+BACnet.general_alarm_active := 
+	Alarms.core_top_temp_high OR 
+	Alarms.core_top_temp_low OR 
+	Alarms.core_mid_temp_high OR 
+	Alarms.core_mid_temp_low OR 
+	Alarms.core_bot_temp_high OR 
+	Alarms.core_bot_temp_low OR 
+	Alarms.water_temp_high OR 
+	Alarms.water_temp_low OR 
+	Alarms.outdoor_temp_high OR 
+	Alarms.outdoor_temp_low OR 
+	Alarms.storage_temp_trip OR 
+	Alarms.core_temp_trip_hw OR 
+	Alarms.ssr_overtemp_trip OR 
+	Alarms.water_temp_trip OR 
+	Alarms.contactor_fail_open OR 
+	Alarms.contactor_fail_closed OR 
+	Alarms.phase_loss OR 
+	Alarms.sensor_fail_core_top OR 
+	Alarms.sensor_fail_core_mid OR 
+	Alarms.sensor_fail_core_bot OR 
+	Alarms.sensor_fail_outdoor OR 
+	Alarms.sensor_fail_water OR 
+	Alarms.core_temp_imbalance OR 
+	Alarms.power_mismatch OR 
+	Alarms.core_over_temp_trip;
+BACnet.high_water_temp_safety := Alarms.water_temp_high;
+BACnet.core_over_temp_top := Alarms.core_top_temp_high;
+BACnet.core_over_temp_mid := Alarms.core_mid_temp_high;
+BACnet.core_over_temp_bot := Alarms.core_bot_temp_high;
+BACnet.sensor_faults := Alarms.sensor_fail_core_top OR Alarms.sensor_fail_core_mid OR Alarms.sensor_fail_core_bot OR Alarms.sensor_fail_outdoor OR Alarms.sensor_fail_water;
+BACnet.local_override_active := Manual.elements_manual OR Manual.pump_manual OR Manual.fan_manual;
+	
+BACnet.units_bms_outdoor_temp := 62; // Units BMS Outdoor Temp (C)
+BACnet.units_bms_charge_level_pct := 98; // Units BMS Charge Level Pct (%)
+BACnet.units_bms_charge_level_temp := 62; // Units BMS Charge Level Temp (C)
+BACnet.units_bms_charge_rate_direct := 98; // Units BMS Charge Rate Direct (%)
+BACnet.units_bms_charge_rate_dr := 48; // Units BMS Charge Rate DR (kW)
+BACnet.units_core_temp_top := 62; // Units Core Temp Top (C)
+BACnet.units_core_temp_mid := 62; // Units Core Temp Mid (C)
+BACnet.units_core_temp_bot := 62; // Units Core Temp Bot (C)
+BACnet.units_hx_outlet_temp := 62; // Units Heat Exchanger Temp (C)
+BACnet.units_outdoor_temp_TE := 62; // Units Outdoor Temp TE (C)
+BACnet.units_power_consumption := 48;// Units Power Consumption (kW)
+BACnet.units_percent_charged := 98; // Units Percent Charged (%)
+
+BACnet.units_charge_rate_setting := 95; // (No Units)
+BACnet.units_charge_target_setting := 95; // (No Units)
+BACnet.units_current_target_core_temp := 62; // (C)
+BACnet.units_current_charge_percent := 98; // (%)
+BACnet.units_blower_fan_speed := 98; // (%)
+BACnet.units_max_core_temp_setting := 62; // (C)
+BACnet.units_fan_water_temp_setpoint := 62; // (C)
+BACnet.units_zone_hysteresis := 62; // (C)
+BACnet.units_pump_start_duration := 73; // (Seconds)
+
+// ============================================================
+// 1. Decode Analog Values (Read from Modbus, Write to BACnet)
+// ============================================================
+FOR i := 0 TO 9 DO
+	// Note: If byte ordering is incorrect, swap the 0 and 1 indices below
+	AnalogValues_Decoded[i].awData[0] := BACnet.AnalogValues_array[i*2];
+	AnalogValues_Decoded[i].awData[1] := BACnet.AnalogValues_array[i*2 + 1];
+END_FOR
+
+// Map decoded Unions to BACnet variables (Value, then Units)
+BACnet.bms_outdoor_temp             := AnalogValues_Decoded[0].rValue;
+BACnet.units_bms_outdoor_temp       := AnalogValues_Decoded[1].dValue;
+
+BACnet.bms_charge_level_pct         := AnalogValues_Decoded[2].rValue;
+BACnet.units_bms_charge_level_pct   := AnalogValues_Decoded[3].dValue;
+
+BACnet.bms_charge_level_temp        := AnalogValues_Decoded[4].rValue;
+BACnet.units_bms_charge_level_temp  := AnalogValues_Decoded[5].dValue;
+
+BACnet.bms_charge_rate_direct       := AnalogValues_Decoded[6].rValue;
+BACnet.units_bms_charge_rate_direct := AnalogValues_Decoded[7].dValue;
+
+BACnet.bms_charge_rate_dr           := AnalogValues_Decoded[8].rValue;
+BACnet.units_bms_charge_rate_dr     := AnalogValues_Decoded[9].dValue;
+
+// ============================================================
+// 2. Decode / Encode Binary Values
+// ============================================================
+// Read from Modbus (BMS commands)
+BACnet.heat_call_bms            := BACnet.BinaryValues_array[0].0;
+
+// Write to Modbus (PLC status exposed to BMS)
+BACnet.BinaryValues_array[0].1 := BACnet.general_alarm_active;
+BACnet.BinaryValues_array[0].2 := BACnet.high_water_temp_safety;
+BACnet.BinaryValues_array[0].3 := BACnet.core_over_temp_top;
+BACnet.BinaryValues_array[0].4 := BACnet.core_over_temp_mid;
+BACnet.BinaryValues_array[0].5 := BACnet.core_over_temp_bot;
+BACnet.BinaryValues_array[0].6 := BACnet.sensor_faults;
+BACnet.BinaryValues_array[0].7 := BACnet.local_override_active;
+
+// ============================================================
+// 3. Encode Analog Inputs (Read from BACnet, Write to Modbus)
+// ============================================================
+// Grouping value and units (2 registers for Value, 2 registers for Units)
+
+AnalogInputs_Decoded[0].rValue  := BACnet.core_temp_top;
+AnalogInputs_Decoded[1].dValue  := BACnet.units_core_temp_top;
+
+AnalogInputs_Decoded[2].rValue  := BACnet.core_temp_mid;
+AnalogInputs_Decoded[3].dValue  := BACnet.units_core_temp_mid;
+
+AnalogInputs_Decoded[4].rValue  := BACnet.core_temp_bot;
+AnalogInputs_Decoded[5].dValue  := BACnet.units_core_temp_bot;
+
+AnalogInputs_Decoded[6].rValue  := BACnet.hx_outlet_temp;
+AnalogInputs_Decoded[7].dValue  := BACnet.units_hx_outlet_temp;
+
+AnalogInputs_Decoded[8].rValue  := BACnet.outdoor_temp_te;
+AnalogInputs_Decoded[9].dValue  := BACnet.units_outdoor_temp_te;
+
+AnalogInputs_Decoded[10].rValue := BACnet.power_consumption;
+AnalogInputs_Decoded[11].dValue := BACnet.units_power_consumption;
+
+AnalogInputs_Decoded[12].rValue := BACnet.percent_charged;
+AnalogInputs_Decoded[13].dValue := BACnet.units_percent_charged;
+
+AnalogInputs_Decoded[14].rValue := BACnet.charge_rate_setting;
+AnalogInputs_Decoded[15].dValue := BACnet.units_charge_rate_setting;
+
+AnalogInputs_Decoded[16].rValue := BACnet.charge_target_setting;
+AnalogInputs_Decoded[17].dValue := BACnet.units_charge_target_setting;
+
+AnalogInputs_Decoded[18].rValue := BACnet.current_target_core_temp;
+AnalogInputs_Decoded[19].dValue := BACnet.units_current_target_core_temp;
+
+AnalogInputs_Decoded[20].rValue := BACnet.current_charge_percent;
+AnalogInputs_Decoded[21].dValue := BACnet.units_current_charge_percent;
+
+AnalogInputs_Decoded[22].dValue := BACnet.state_machine_status;
+AnalogInputs_Decoded[23].dValue := 0; // state_machine_status does not have units, pad with 0
+
+AnalogInputs_Decoded[24].rValue := BACnet.blower_fan_speed;
+AnalogInputs_Decoded[25].dValue := BACnet.units_blower_fan_speed;
+
+AnalogInputs_Decoded[26].rValue := BACnet.max_core_temp_setting;
+AnalogInputs_Decoded[27].dValue := BACnet.units_max_core_temp_setting;
+
+AnalogInputs_Decoded[28].rValue := BACnet.fan_water_temp_setpoint;
+AnalogInputs_Decoded[29].dValue := BACnet.units_fan_water_temp_setpoint;
+
+AnalogInputs_Decoded[30].rValue := BACnet.zone_hysteresis;
+AnalogInputs_Decoded[31].dValue := BACnet.units_zone_hysteresis;
+
+AnalogInputs_Decoded[32].rValue := BACnet.pump_start_duration;
+AnalogInputs_Decoded[33].dValue := BACnet.units_pump_start_duration;
+
+// Pack Unions back into the Modbus array
+FOR i := 0 TO 33 DO
+	// Note: If byte ordering is incorrect, swap the 0 and 1 indices below
+	BACnet.AnalogInputs_array[i*2]     := AnalogInputs_Decoded[i].awData[0];
+	BACnet.AnalogInputs_array[i*2 + 1] := AnalogInputs_Decoded[i].awData[1];
+END_FOR
+
+// ============================================================
+// 4. Encode Binary Inputs (Read from BACnet, Write to Modbus)
+// ============================================================
+// Adjust the bit index (.0, .1) to match your specific Modbus coil addresses.
+BACnet.BinaryInputs_array[0].0 := BACnet.heating_elements.0; // Element 1
+BACnet.BinaryInputs_array[0].1 := BACnet.heating_elements.1; // Element 2
+BACnet.BinaryInputs_array[0].2 := BACnet.heating_elements.2; // Element 3
+BACnet.BinaryInputs_array[0].3 := BACnet.heating_elements.3; // Element 4
+BACnet.BinaryInputs_array[0].4 := BACnet.heating_elements.4; // Element 5
+BACnet.BinaryInputs_array[0].5 := BACnet.heating_elements.5; // Element 6
+BACnet.BinaryInputs_array[0].6 := BACnet.heating_elements.6; // Element 7
+BACnet.BinaryInputs_array[0].7 := BACnet.heating_elements.7; // Element 8
+BACnet.BinaryInputs_array[0].8 := BACnet.heating_elements.8; // Element 9
+
+BACnet.BinaryInputs_array[0].9  := BACnet.blower_status;
+BACnet.BinaryInputs_array[0].10 := BACnet.pump_status;

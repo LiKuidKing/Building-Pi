@@ -3,6 +3,7 @@ import cors from 'cors';
 import bacnet from 'node-bacnet';
 import os from 'os';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { SerialPort } from 'serialport';
 import ModbusRTU from 'modbus-serial';
@@ -16,6 +17,63 @@ const port = process.env.PORT || (process.env.NODE_ENV === 'production' ? 80 : 3
 app.use(cors());
 app.use(express.json());
 
+// Persistent Data Storage setup
+const DATA_DIR = path.join(__dirname, '../data');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+const DEVICES_FILE = path.join(DATA_DIR, 'devices.json');
+const FAVORITES_FILE = path.join(DATA_DIR, 'favorites.json');
+
+function readJsonFile(filePath, defaultValue) {
+  try {
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (e) {
+    console.error(`Error reading ${filePath}:`, e.message);
+  }
+  return defaultValue;
+}
+
+function writeJsonFile(filePath, data) {
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {
+    console.error(`Error writing ${filePath}:`, e.message);
+  }
+}
+
+// Thermelect BACnet Tag Mapping (type_instance -> human readable tag name)
+const THERMELECT_TAG_MAP = {
+  '0_0': 'Core Temp Top',
+  '0_1': 'Core Temp Mid',
+  '0_2': 'Core Temp Bottom',
+  '0_3': 'Heat Exchanger Temp',
+  '0_4': 'Outdoor Temp',
+  '1_0': 'Manual Element PWM',
+  '2_0': 'Outdoor Temp (Network)',
+  '2_1': 'Core Temp Limit',
+  '2_2': 'Building L1 Watts',
+  '2_3': 'Building L2 Watts',
+  '2_4': 'Building L3 Watts',
+  '2_5': 'Core Top Temp',
+  '3_0': 'Heating Element 1',
+  '3_1': 'Heating Element 2',
+  '3_2': 'Heating Element 3',
+  '3_3': 'Heating Element 4',
+  '3_4': 'Heating Element 5',
+  '3_5': 'Heating Element 6',
+  '3_6': 'Heating Element 7',
+  '3_7': 'Heating Element 8',
+  '3_8': 'Heating Element 9',
+  '3_9': 'Blower',
+  '3_10': 'Pump',
+  '4_0': 'Heat Call'
+};
+
 // Serve static compiled front-end files in production
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../dist')));
@@ -24,6 +82,7 @@ if (process.env.NODE_ENV === 'production') {
 // Maintain a singleton BACnet client
 let client = null;
 let currentConfig = { ip: null, port: 47808 };
+
 
 function getClient(ip, clientPort) {
   // Try to use existing client if config matches
@@ -214,6 +273,16 @@ app.get('/api/bacnet/device/:ip/:deviceId/objects', (req, res) => {
               assignedName = nameValue.values[0].value;
             }
 
+            // Thermelect Tag Auto-Population:
+            // If assignedName is generic default like "Analog Input 0" or if Thermelect tag map matches, use Thermelect tag name
+            const tagKey = `${obj.type}_${obj.instance}`;
+            if (THERMELECT_TAG_MAP[tagKey]) {
+              const defaultGeneric = `${OBJECT_TYPES[obj.type] || 'Obj'} ${obj.instance}`;
+              if (assignedName === defaultGeneric || assignedName.startsWith('Analog ') || assignedName.startsWith('Binary ')) {
+                assignedName = THERMELECT_TAG_MAP[tagKey];
+              }
+            }
+
             // Read Units property (ID 117) for analog object types (AI, AO, AV)
             const isAnalog = [0, 1, 2].includes(obj.type);
             if (isAnalog) {
@@ -255,6 +324,73 @@ app.get('/api/bacnet/device/:ip/:deviceId/objects', (req, res) => {
     }
   );
 });
+
+// --- PERSISTENT DATA ENDPOINTS ---
+
+app.get('/api/devices', (req, res) => {
+  const devices = readJsonFile(DEVICES_FILE, []);
+  res.json(devices);
+});
+
+app.post('/api/devices', (req, res) => {
+  const devices = req.body;
+  if (!Array.isArray(devices)) {
+    return res.status(400).json({ error: 'Expected array of devices' });
+  }
+  writeJsonFile(DEVICES_FILE, devices);
+  res.json({ success: true, count: devices.length });
+});
+
+app.delete('/api/devices/:id', (req, res) => {
+  const id = req.params.id;
+  let devices = readJsonFile(DEVICES_FILE, []);
+  devices = devices.filter(d => String(d.id) !== String(id));
+  writeJsonFile(DEVICES_FILE, devices);
+  
+  // Clean up associated favorites
+  let favorites = readJsonFile(FAVORITES_FILE, []);
+  favorites = favorites.filter(f => String(f.deviceId) !== String(id));
+  writeJsonFile(FAVORITES_FILE, favorites);
+
+  res.json({ success: true });
+});
+
+app.get('/api/favorites', (req, res) => {
+  const favorites = readJsonFile(FAVORITES_FILE, []);
+  res.json(favorites);
+});
+
+app.post('/api/favorites', (req, res) => {
+  const favorites = req.body;
+  if (!Array.isArray(favorites)) {
+    return res.status(400).json({ error: 'Expected array of favorites' });
+  }
+  writeJsonFile(FAVORITES_FILE, favorites);
+  res.json({ success: true, count: favorites.length });
+});
+
+// --- LIVE WEATHER ENDPOINT (Open-Meteo free API) ---
+app.get('/api/weather', async (req, res) => {
+  const lat = req.query.lat || '46.8772';
+  const lon = req.query.lon || '-96.7898';
+  try {
+    const response = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
+    if (!response.ok) throw new Error(`Open-Meteo returned status ${response.status}`);
+    const data = await response.json();
+    const current = data.current_weather || {};
+    res.json({
+      temperature: current.temperature, // °C
+      temperatureF: (current.temperature * 9/5 + 32).toFixed(1), // °F
+      windspeed: current.windspeed,
+      weathercode: current.weathercode,
+      time: current.time
+    });
+  } catch (err) {
+    console.error('Weather API error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch weather data' });
+  }
+});
+
 
 // Since reading properties one by one can be slow, many BACnet clients use ReadPropertyMultiple.
 // However, node-bacnet readPropertyMultiple can be complex to construct.
