@@ -458,7 +458,8 @@ app.post('/api/bacnet/device/:ip/read', (req, res) => {
           
           formattedValue = reading;
           if (obj.type === 3 || obj.type === 4 || obj.type === 5) { // Binary Input/Output/Value
-            formattedValue = reading === 1 ? 'ON' : 'OFF';
+            const sRead = String(reading).trim().toUpperCase();
+            formattedValue = (reading === 1 || reading === true || sRead === '1' || sRead === 'TRUE' || sRead === 'ACTIVE' || sRead === 'ON') ? 'ON' : 'OFF';
           } else if (typeof reading === 'number') {
             formattedValue = reading.toFixed(1);
           }

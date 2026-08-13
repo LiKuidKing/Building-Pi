@@ -470,17 +470,29 @@ function App() {
     return point?.value ?? null;
   };
 
-  // Helper to find a specific BACnet point across all devices (for Thermelect dashboard cards)
-  const findBacnetPointByName = (nameKeywords) => {
+  // Robust BACnet point lookup matching type, instance, or name keywords
+  const findBacnet = (typeId, instance, nameKeywords = []) => {
     for (const d of bacnetDevices) {
       for (const p of d.points) {
-        const lower = p.name ? p.name.toLowerCase() : '';
-        if (nameKeywords.some(kw => lower.includes(kw.toLowerCase()))) {
+        if (typeId !== undefined && instance !== undefined && p.typeId === typeId && p.instance === instance) {
           return p;
+        }
+        if (p.name && nameKeywords.length > 0) {
+          const lower = p.name.toLowerCase();
+          if (nameKeywords.some(kw => lower.includes(kw.toLowerCase()))) {
+            return p;
+          }
         }
       }
     }
     return null;
+  };
+
+  // Helper to check if a binary BACnet point is currently ACTIVE / ON
+  const isPointActive = (p) => {
+    if (!p || p.value === undefined || p.value === null || p.value === '---' || p.value === 'ERR') return false;
+    const val = String(p.value).trim().toUpperCase();
+    return val === 'ON' || val === '1' || val === 'TRUE' || val === 'ACTIVE' || val === 'YES';
   };
 
   // Automatically fetch Pi IP, stored devices, stored favorites, and live weather on mount
@@ -750,7 +762,7 @@ function App() {
 
             {/* Thermal Storage Widget (Bound strictly to BACnet "Current Charge Percent") */}
             {(() => {
-              const chargePctPoint = findBacnetPointByName(['current charge percent', 'percent charge', 'bms charge level pct']);
+              const chargePctPoint = findBacnet(0, 10, ['current charge percent', 'percent charge', 'bms charge level pct']);
               const rawVal = chargePctPoint ? chargePctPoint.value : '---';
               const numVal = parseFloat(rawVal);
               const pct = !isNaN(numVal) ? Math.min(100, Math.max(0, numVal)) : 0;
@@ -782,7 +794,7 @@ function App() {
 
             {/* Power Consumption Widget (Bound to BACnet "Power Consumption") */}
             {(() => {
-              const powerConsumptionPoint = findBacnetPointByName(['power consumption', 'bms charge rate direct', 'bms charge rate dr']);
+              const powerConsumptionPoint = findBacnet(0, 5, ['power consumption', 'bms charge rate direct', 'bms charge rate dr']);
               const displayVal = powerConsumptionPoint ? powerConsumptionPoint.value : '---';
               const unit = powerConsumptionPoint ? (powerConsumptionPoint.unit || getBacnetUnitSymbol(powerConsumptionPoint.unitId) || 'kW') : 'kW';
 
@@ -807,24 +819,53 @@ function App() {
               );
             })()}
 
+            {/* General Alarm Active Widget */}
+            {(() => {
+              const alarmPoint = findBacnet(3, 11, ['general alarm active', 'general alarm']);
+              const alarmActive = isPointActive(alarmPoint);
+
+              return (
+                <div className="glass-panel" style={{ border: alarmActive ? '1px solid #ef4444' : '1px solid rgba(255,255,255,0.08)' }}>
+                  <div className="widget-header">
+                    <div className="icon-wrapper" style={{ background: alarmActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.1)', color: alarmActive ? '#ef4444' : '#22c55e' }}>
+                      <Activity size={24} color={alarmActive ? '#ef4444' : '#22c55e'} />
+                    </div>
+                    <span className="widget-title">System Alarm</span>
+                  </div>
+                  <div className="widget-body">
+                    <div className="main-value" style={{ color: alarmActive ? '#ef4444' : '#22c55e', fontSize: '1.8rem' }}>
+                      {alarmActive ? 'ALARM ACTIVE' : 'NORMAL'}
+                    </div>
+                    <div className="sub-info" style={{ marginTop: '0.5rem' }}>
+                      <span style={{ color: alarmActive ? '#ef4444' : 'var(--text-muted)' }}>
+                        {alarmPoint ? alarmPoint.name : 'General Alarm Status'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Thermelect Equipment Status Card */}
             {(() => {
-              const blowerPoint = findBacnetPointByName(['blower']);
-              const pumpPoint = findBacnetPointByName(['pump']);
-              const heatCallPoint = findBacnetPointByName(['heat call']);
+              const blowerPoint = findBacnet(3, 9, ['blower']);
+              const pumpPoint = findBacnet(3, 10, ['pump']);
+              const heatCallPoint = findBacnet(5, 0, ['heat call']);
+              const alarmPoint = findBacnet(3, 11, ['general alarm active', 'general alarm']);
               
-              // Count active heating elements
+              // Count active heating elements (3, 0 through 3, 8)
               let activeElementsCount = 0;
-              for (let i = 1; i <= 9; i++) {
-                const el = findBacnetPointByName([`heating element ${i}`]);
-                if (el && (el.value === 'ON' || el.value === '1' || el.value === true)) {
+              for (let i = 0; i < 9; i++) {
+                const el = findBacnet(3, i, [`heating element ${i + 1}`]);
+                if (isPointActive(el)) {
                   activeElementsCount++;
                 }
               }
 
-              const blowerOn = blowerPoint && (blowerPoint.value === 'ON' || blowerPoint.value === '1');
-              const pumpOn = pumpPoint && (pumpPoint.value === 'ON' || pumpPoint.value === '1');
-              const heatCallOn = heatCallPoint && (heatCallPoint.value === 'ON' || heatCallPoint.value === '1');
+              const blowerOn = isPointActive(blowerPoint);
+              const pumpOn = isPointActive(pumpPoint);
+              const heatCallOn = isPointActive(heatCallPoint);
+              const alarmOn = isPointActive(alarmPoint);
 
               return (
                 <div className="glass-panel" style={{ gridColumn: 'span 2' }}>
@@ -834,7 +875,7 @@ function App() {
                     </div>
                     <span className="widget-title">Thermelect System Operating Status</span>
                   </div>
-                  <div className="widget-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginTop: '0.25rem' }}>
+                  <div className="widget-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.75rem', marginTop: '0.25rem' }}>
                     
                     {/* Blower Tile */}
                     <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' }}>
@@ -857,6 +898,14 @@ function App() {
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Heat Call</div>
                       <span className={`device-status ${!heatCallOn ? 'offline' : ''}`} style={{ background: heatCallOn ? 'rgba(250, 204, 21, 0.2)' : undefined, color: heatCallOn ? '#facc15' : undefined }}>
                         {heatCallPoint ? (heatCallOn ? 'ACTIVE' : 'IDLE') : 'N/A'}
+                      </span>
+                    </div>
+
+                    {/* General Alarm Tile */}
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>General Alarm</div>
+                      <span className={`device-status ${!alarmOn ? '' : 'offline'}`} style={{ background: alarmOn ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)', color: alarmOn ? '#ef4444' : '#4ade80' }}>
+                        {alarmPoint ? (alarmOn ? 'ALARM' : 'OK') : 'N/A'}
                       </span>
                     </div>
 
