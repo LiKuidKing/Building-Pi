@@ -748,14 +748,13 @@ function App() {
               </div>
             </div>
 
-            {/* Thermal Storage / Core Temp Widget (Bound to BACnet Thermelect Points) */}
+            {/* Thermal Storage Widget (Bound strictly to BACnet "Current Charge Percent") */}
             {(() => {
-              const coreTempPoint = findBacnetPointByName(['core temp top', 'core top temp', 'core temp mid', 'thermal storage']);
-              const displayVal = coreTempPoint ? coreTempPoint.value : '---';
-              const unit = coreTempPoint ? (coreTempPoint.unit || getBacnetUnitSymbol(coreTempPoint.unitId)) : '°C';
-              const numVal = parseFloat(displayVal);
-              const isPercent = unit === '%' || displayVal.includes('%');
-              const pct = isPercent && !isNaN(numVal) ? Math.min(100, Math.max(0, numVal)) : null;
+              const chargePctPoint = findBacnetPointByName(['current charge percent', 'percent charge', 'bms charge level pct']);
+              const rawVal = chargePctPoint ? chargePctPoint.value : '---';
+              const numVal = parseFloat(rawVal);
+              const pct = !isNaN(numVal) ? Math.min(100, Math.max(0, numVal)) : 0;
+              const displayVal = chargePctPoint ? (isNaN(numVal) ? rawVal : numVal.toFixed(1)) : '---';
 
               return (
                 <div className="glass-panel battery">
@@ -767,18 +766,42 @@ function App() {
                   </div>
                   <div className="widget-body">
                     <div className="main-value">
+                      {displayVal} <span className="unit">%</span>
+                    </div>
+                    <div className="battery-container" style={{ marginTop: '0.5rem' }}>
+                      <div className="battery-fill" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #0284c7, #38bdf8)' }}></div>
+                    </div>
+                    <div className="sub-info" style={{ marginTop: '0.5rem' }}>
+                      <Activity size={14} color="#38bdf8" />
+                      <span>{chargePctPoint ? chargePctPoint.name : 'Current Charge Percent'}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Power Consumption Widget (Bound to BACnet "Power Consumption") */}
+            {(() => {
+              const powerConsumptionPoint = findBacnetPointByName(['power consumption', 'bms charge rate direct', 'bms charge rate dr']);
+              const displayVal = powerConsumptionPoint ? powerConsumptionPoint.value : '---';
+              const unit = powerConsumptionPoint ? (powerConsumptionPoint.unit || getBacnetUnitSymbol(powerConsumptionPoint.unitId) || 'kW') : 'kW';
+
+              return (
+                <div className="glass-panel price">
+                  <div className="widget-header">
+                    <div className="icon-wrapper">
+                      <Zap size={24} color="#facc15" />
+                    </div>
+                    <span className="widget-title">Power Consumption</span>
+                  </div>
+                  <div className="widget-body">
+                    <div className="main-value" style={{ color: '#facc15' }}>
                       {displayVal} <span className="unit">{unit}</span>
                     </div>
-                    {pct !== null ? (
-                      <div className="battery-container" style={{ marginTop: '0.5rem' }}>
-                        <div className="battery-fill" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #0284c7, #38bdf8)' }}></div>
-                      </div>
-                    ) : (
-                      <div className="sub-info" style={{ marginTop: '0.5rem' }}>
-                        <Activity size={16} color="#38bdf8" />
-                        <span>{coreTempPoint ? coreTempPoint.name : 'Connect Thermelect BACnet unit'}</span>
-                      </div>
-                    )}
+                    <div className="sub-info" style={{ marginTop: '0.5rem' }}>
+                      <Activity size={14} color="#facc15" />
+                      <span>{powerConsumptionPoint ? powerConsumptionPoint.name : 'Charging Power (kW)'}</span>
+                    </div>
                   </div>
                 </div>
               );
